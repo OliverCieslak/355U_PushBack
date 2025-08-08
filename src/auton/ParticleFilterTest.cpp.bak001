@@ -1,0 +1,372 @@
+// Includes
+#include <vector>
+#include <cmath>
+#include "auton/ParticleFilterTest.hpp"
+#include "main.h"
+
+#include "units/Pose.hpp"
+#include "utils/DistanceUtils.hpp"
+#include "odometry/SkidSteerOdometry.hpp"
+#include "localization/ParticleFilter.hpp"
+#include "viz/FieldView.hpp"
+#include "viz/DiagnosticsView.hpp"
+#include "tuning/CharacterizationView.hpp"
+#include "pros/motor_group.hpp"
+#include "pros/imu.hpp"
+
+// External references declared in main.cpp
+extern odometry::SkidSteerOdometry odometrySystem;
+extern localization::ParticleFilter particleFilter;
+extern viz::FieldView fieldView;
+extern viz::DiagnosticsView diagnosticsView;
+extern tuning::CharacterizationView characterizationView;
+extern pros::MotorGroup prosLeftMotors;
+extern pros::MotorGroup prosRightMotors;
+extern lemlib::MotorGroup leftMotors;
+extern lemlib::MotorGroup rightMotors;
+extern pros::v5::Motor prosLeft1;
+extern pros::v5::Motor prosLeft2;
+extern pros::v5::Motor prosLeft3;
+extern pros::v5::Motor prosRight1;
+extern pros::v5::Motor prosRight2;
+extern pros::v5::Motor prosRight3;
+extern pros::v5::Distance frontSensor;
+extern pros::v5::Distance rightSensor;
+extern pros::v5::Distance backSensor;
+extern pros::v5::Distance leftSensor;
+extern lemlib::V5InertialSensor imu;
+extern units::Pose backSensorPos;
+extern units::Pose leftSensorPos;
+extern units::Pose rightSensorPos;
+extern units::Pose frontSensorPos;
+
+
+
+void calibrateParticleFilterDistanceSensorPoses() {
+    // Helper for calibration: collect odometry pose and sensor readings on Enter
+    std::cout << "\n=== Distance Sensor Calibration Helper ===\n";
+    std::cout << "Start robot at a known pose (e.g., (48, 48, 0)). Move to several positions and press Enter at each.\n";
+    std::cout << "At each step, the system will print odometry pose, expected sensor readings, actual readings, and error.\n";
+    std::cout << "Capture at least 3-4 poses for best results.\n\n";
+
+    struct Sample {
+        units::Pose robotPose;
+        double actualFront, actualRight;
+        double expectedFront, expectedRight;
+    };
+    std::vector<Sample> samples;
+
+    // Hardcode initial pose to (48, 48, 0)
+    units::Pose initialPose(48_in, 48_in, 0_cDeg);
+    odometrySystem.resetPose(initialPose);
+    odometrySystem.start();
+    std::cout << "Robot pose reset to (48, 48, 0).\n";
+
+    bool useMockData = false; // Set to false to use real sensor readings and odometry pose
+    for (int i = 0; i < 2; ++i) {
+        std::cout << "Move robot to a new pose and press Enter...";
+        std::cin.ignore();
+
+        units::Pose robotPose;
+        double actualFront, actualRight;
+        if (useMockData) {
+            // Pivot in place at 0/90 headings
+            int headings[2] = {0, 90};
+            robotPose = units::Pose(initialPose.x, initialPose.y, Angle(headings[i] * 100)); // 100 = centidegrees
+            // Mock values for each pass (in inches)
+            switch (i) {
+                case 0:
+                    actualFront = 48.0; actualRight = 36.0; break;
+                case 1:
+                    actualFront = 47.5; actualRight = 35.5; break;
+                default:
+                    actualFront = 48.0; actualRight = 36.0; break;
+            }
+        } else {
+            robotPose = odometrySystem.getPose();
+            actualFront = to_in(from_mm(frontSensor.get_distance()));
+            actualRight = to_in(from_mm(rightSensor.get_distance()));
+        }
+
+        double expectedFront = to_in(utils::calculateExpectedDistance(robotPose, frontSensorPos));
+        double expectedRight = to_in(utils::calculateExpectedDistance(robotPose, rightSensorPos));
+
+        std::cout << "\n--- Sample " << (i+1) << " ---\n";
+        std::cout << "Robot Pose: (" << to_in(robotPose.x) << ", " << to_in(robotPose.y) << ", " << to_cDeg(robotPose.orientation) << ")\n";
+        std::cout << "Front Sensor: Actual=" << actualFront << " in, Expected=" << expectedFront << " in, Error=" << (actualFront-expectedFront) << " in\n";
+        std::cout << "Right Sensor: Actual=" << actualRight << " in, Expected=" << expectedRight << " in, Error=" << (actualRight-expectedRight) << " in\n";
+
+        samples.push_back({robotPose, actualFront, actualRight, expectedFront, expectedRight});
+    }
+
+    std::cout << "\nCalibration samples collected.\n";
+
+    // === Direct Sensor Pose Estimation (front and right only) ===
+    Length fieldNorthWall = utils::halfHeight; // y = +halfHeight
+    Length fieldEastWall = utils::halfWidth; // x = +halfWidth
+    const double headingTolerance = 3.0; // degrees
+
+    for (const auto& s : samples) {
+        std::cout << "\nSample direct geometric estimates:\n";
+        // Front sensor
+        double robotHeading = to_cDeg(s.robotPose.orientation);
+        double frontRelAngle = to_cDeg(frontSensorPos.orientation);
+        double frontGlobalAngle = std::fmod(robotHeading + frontRelAngle, 360.0);
+        if (frontGlobalAngle < 0) frontGlobalAngle += 360.0;
+        double frontAngleDiff = std::fmod(std::abs(frontGlobalAngle - 0.0), 360.0);
+        if (frontAngleDiff > 180.0) frontAngleDiff = 360.0 - frontAngleDiff;
+        if (frontAngleDiff < headingTolerance) {
+            // Facing north wall
+            Length sensorY = fieldNorthWall - s.robotPose.y - from_in(s.actualFront);
+            std::cout << "Estimated Front sensor y-position (robot-relative): " << to_in(sensorY) << " in\n";
+        }
+
+        // Right sensor
+        double rightRelAngle = to_cDeg(rightSensorPos.orientation);
+        double rightGlobalAngle = std::fmod(robotHeading + rightRelAngle, 360.0);
+        if (rightGlobalAngle < 0) rightGlobalAngle += 360.0;
+        double rightAngleDiff = std::fmod(std::abs(rightGlobalAngle - 90.0), 360.0);
+        if (rightAngleDiff > 180.0) rightAngleDiff = 360.0 - rightAngleDiff;
+        if (rightAngleDiff < headingTolerance) {
+            // Facing east wall
+            Length sensorX = fieldEastWall - s.robotPose.x - from_in(s.actualRight);
+            std::cout << "Estimated Right sensor x-position (robot-relative): " << to_in(sensorX) << " in\n";
+        }
+    }
+
+    std::cout << "\nIf you align the robot and sensor to face a wall, the above values give you the sensor's position directly.\n";
+    std::cout << "Otherwise, use the average error method for more general cases.\n";
+
+    // === Least squares fit for sensor pose (robot-relative, inches) ===
+    auto clampInches = [](double value) {
+        return std::max(-9.0, std::min(9.0, value));
+    };
+    // For each sensor, fit y (front) and x (right) using all samples
+    double sumFrontY = 0.0, sumRightX = 0.0;
+    for (const auto& s : samples) {
+        Length frontY = fieldNorthWall - s.robotPose.y - from_in(s.actualFront);
+        Length rightX = fieldEastWall - s.robotPose.x - from_in(s.actualRight);
+        sumFrontY += to_in(frontY);
+        sumRightX += to_in(rightX);
+    }
+    double avgFrontY = samples.size() > 0 ? sumFrontY / samples.size() : 0.0;
+    double avgRightX = samples.size() > 0 ? sumRightX / samples.size() : 0.0;
+    double clampedFrontY = clampInches(avgFrontY);
+    double clampedRightX = clampInches(avgRightX);
+    // Output single best-fit pose for each sensor
+    std::cout << "\n--- Suggested Sensor Relative Poses (robot-relative, inches, best-fit from all samples) ---\n";
+    std::cout << "  Front sensor pose: (x = " << to_in(frontSensorPos.x)
+              << ", y = " << clampedFrontY
+              << ", orientation = " << to_cDeg(frontSensorPos.orientation) << ")\n";
+    std::cout << "  Right sensor pose: (x = " << clampedRightX
+              << ", y = " << to_in(rightSensorPos.y)
+              << ", orientation = " << to_cDeg(rightSensorPos.orientation) << ")\n";
+}
+
+void runParticleFilterTest() {    
+    double prosLeft1Pos = prosLeft1.get_position();
+    double prosLeft2Pos = prosLeft2.get_position();
+    double prosLeft3Pos = prosLeft3.get_position();
+    double prosRight1Pos = prosRight1.get_position();
+    double prosRight2Pos = prosRight2.get_position();
+    double prosRight3Pos = prosRight3.get_position();
+    double prosLeftMotorsPos = prosLeftMotors.get_position();
+    double prosRightMotorsPos = prosRightMotors.get_position();
+    Angle leftMotorsAngle = leftMotors.getAngle();
+    Angle rightMotorsAngle = rightMotors.getAngle();
+
+    // Initialize test - reset odometry and particle filter to a known pose
+    units::Pose initialPose(-48_in, 48_in, 90_cDeg);  // Red Left Side
+    //units::Pose initialPose(-48_in, 48_in, 60_cDeg);  // Red Left Side 30 degrees
+    //units::Pose initialPose(48_in, 48_in, -180_cDeg);  // Blue Right Side
+    odometrySystem.resetPose(initialPose);
+    particleFilter.resetPose(initialPose);
+    odometrySystem.start();
+    particleFilter.start();
+
+    // Enable performance logging with 1-second intervals
+    particleFilter.enablePerformanceLogging(true, 1000);
+    
+    // Enable visualization
+    particleFilter.enableVisualization(true, &fieldView, 15);
+    
+    // Setup diagnostics view with sensors and motors
+    pros::v5::Motor* motors[] = {&prosLeft1, &prosLeft2, &prosLeft3, &prosRight1, &prosRight2, &prosRight3};
+    const char* motorNames[] = {"Left 1", "Left 2", "Left 3", "Right 1", "Right 2", "Right 3"};
+    
+    pros::v5::Distance* distanceSensors[] = {&frontSensor, &rightSensor, &backSensor, &leftSensor};
+    const char* sensorNames[] = {"Front", "Right", "Back", "Left"};
+    
+    Length initialBackDistance = from_mm(backSensor.get_distance());
+    Length initialLeftDistance = from_mm(leftSensor.get_distance());
+    int initialBackConfidence = backSensor.get_confidence();
+    int initialLeftConfidence = leftSensor.get_confidence();
+    
+    std::cout << "\n==== STARTING PARTICLE FILTER TEST ====\n";
+    std::cout << "Initial pose: (" << to_in(initialPose.x) << " in, " 
+              << to_in(initialPose.y) << " in, " << to_cDeg(initialPose.orientation) << " deg)\n";
+    
+    Time startTime = from_msec(pros::millis());
+    //Time testDuration = 15_sec;
+    Time testDuration = 5_sec;
+    
+    while (from_msec(pros::millis()) - startTime < testDuration)
+    {
+        // Define motor arrays outside the loop to avoid potential stack issues
+        static pros::v5::Motor* leftMotors[3] = {&prosLeft1, &prosLeft2, &prosLeft3};
+        static pros::v5::Motor* rightMotors[3] = {&prosRight1, &prosRight2, &prosRight3};
+        
+        // Update diagnostic view with motor groups
+        // diagnosticsView.updateMotors(leftMotors, rightMotors, 3);
+        diagnosticsView.updateIMU(imu.getRotation());
+        
+        // Print current positions
+        units::Pose odomPose = odometrySystem.getPose();
+        units::Pose pfPose = particleFilter.getPose();
+        std::cout << "Time: " << (from_msec(pros::millis()) - startTime) << " s\n";
+        std::cout << "  Odometry: (" << to_in(odomPose.x) << " in, " 
+                  << to_in(odomPose.y) << " in, " << to_cDeg(odomPose.orientation) << " deg)\n";
+        std::cout << "  Particle Filter: (" << to_in(pfPose.x) << " in, " 
+                 << to_in(pfPose.y) << " in, " << to_cDeg(pfPose.orientation) << " deg)\n";
+        Angle odomToPfDiff = pfPose.orientation - odomPose.orientation;
+        odomToPfDiff = units::constrainAngle180(odomToPfDiff);
+        std::cout << "  Difference: (" 
+                  << to_in(pfPose.x - odomPose.x) << " in, " 
+                  << to_in(pfPose.y - odomPose.y) << " in, "
+                  << to_stDeg(odomToPfDiff) << " deg)\n\n";
+        
+        pros::delay(1000);
+    }
+    // Print final positions
+    units::Pose finalOdomPose = odometrySystem.getPose();
+    units::Pose finalPfPose = particleFilter.getPose();
+
+    particleFilter.stop();
+    odometrySystem.stop();
+
+    Angle odomToPfDiff = finalPfPose.orientation - finalOdomPose.orientation;
+    odomToPfDiff = units::constrainAngle180(odomToPfDiff);
+    std::cout << "\n==== PARTICLE FILTER TEST COMPLETED ====\n";
+    std::cout << "Final Difference: (" 
+              << to_in(finalPfPose.x - finalOdomPose.x) << " in, " 
+              << to_in(finalPfPose.y - finalOdomPose.y) << " in, "
+              << to_stDeg(odomToPfDiff) << " deg)\n";
+    std::cout << "Return-to-start error (Odometry): " 
+              << to_in(units::sqrt(utils::poseDistanceSquared(initialPose, finalOdomPose))) << " in\n";
+    std::cout << "Return-to-start error (Particle Filter): " 
+              << to_in(units::sqrt(utils::poseDistanceSquared(initialPose, finalPfPose))) << " in\n";
+    std::cout << "=======================================\n\n";
+
+    /*
+    std::cout << "Start ProsLeft1: " << prosLeft1Pos << "\n";
+    std::cout << "Start ProsLeft2: " << prosLeft2Pos << "\n";
+    std::cout << "Start ProsLeft3: " << prosLeft3Pos << "\n";
+    std::cout << "Start ProsRight1: " << prosRight1Pos << "\n";
+    std::cout << "Start ProsRight2: " << prosRight2Pos << "\n";
+    std::cout << "Start ProsRight3: " << prosRight3Pos << "\n";
+    std::cout << "Start ProsLeftMotors: " << prosLeftMotorsPos << "\n";
+    std::cout << "Start ProsRightMotors: " << prosRightMotorsPos << "\n";
+    std::cout << "Start LeftMotors: " << to_stDeg(leftMotorsAngle) << "\n";
+    std::cout << "Start RightMotors: " << to_stDeg(rightMotorsAngle) << "\n";
+    */
+    prosLeft1Pos = prosLeft1.get_position();
+    prosLeft2Pos = prosLeft2.get_position();
+    prosLeft3Pos = prosLeft3.get_position();
+    prosRight1Pos = prosRight1.get_position();
+    prosRight2Pos = prosRight2.get_position();
+    prosRight3Pos = prosRight3.get_position();
+    prosLeftMotorsPos = prosLeftMotors.get_position();
+    prosRightMotorsPos = prosRightMotors.get_position();
+    leftMotorsAngle = leftMotors.getAngle();
+    rightMotorsAngle = rightMotors.getAngle();
+    /*
+    std::cout << "End ProsLeft1: " << prosLeft1Pos << "\n";
+    std::cout << "End ProsLeft2: " << prosLeft2Pos << "\n";
+    std::cout << "End ProsLeft3: " << prosLeft3Pos << "\n";
+    std::cout << "End ProsRight1: " << prosRight1Pos << "\n";
+    std::cout << "End ProsRight2: " << prosRight2Pos << "\n";
+    std::cout << "End ProsRight3: " << prosRight3Pos << "\n";
+    std::cout << "End ProsLeftMotors: " << prosLeftMotorsPos << "\n";
+    std::cout << "End ProsRightMotors: " << prosRightMotorsPos << "\n";
+    std::cout << "End LeftMotors: " << to_stDeg(leftMotorsAngle) << "\n";
+    std::cout << "End RightMotors: " << to_stDeg(rightMotorsAngle) << "\n";
+    */
+    Length endBackDistance = from_mm(backSensor.get_distance());
+    Length endLeftDistance = from_mm(leftSensor.get_distance());
+    int endBackConfidence = backSensor.get_confidence();
+    int endLeftConfidence = leftSensor.get_confidence();
+
+    /*
+    std::cout << "Initial Back Sensor: " << to_in(initialBackDistance) << " in\n";
+    std::cout << "Initial Left Sensor: " << to_in(initialLeftDistance) << " in\n";
+    std::cout << "End Back Sensor: " << to_in(endBackDistance) << " in\n";
+    std::cout << "End Left Sensor: " << to_in(endLeftDistance) << " in\n";
+    std::cout << "Back Sensor Delta: " << to_in(endBackDistance - initialBackDistance) << " in\n";
+    std::cout << "Left Sensor Delta: " << to_in(endLeftDistance - initialLeftDistance) << " in\n";
+    std::cout << "Start Back Sensor Confidence: " << initialBackConfidence << "\n";
+    std::cout << "End Back Sensor Confidence: " << endBackConfidence << "\n";
+    std::cout << "Start Left Sensor Confidence: " << initialLeftConfidence << "\n";
+    std::cout << "End Left Sensor Confidence: " << endLeftConfidence << "\n";
+    int backSize = backSensor.get_object_size();
+    int frontSize = frontSensor.get_object_size();
+    int frontConfidence = frontSensor.get_confidence();
+    int frontDist = frontSensor.get_distance();
+    std::cout << "Front Sensor Size: " << frontSize << "\n";
+    std::cout << "Back Sensor Size: " << backSize << "\n";
+    std::cout << "Front Sensor Confidence: " << frontConfidence << "\n";
+    std::cout << "Front Sensor Distance: " << frontDist << "\n";
+    */
+}
+
+void testPoseTransformAndExpectedDistance() {
+    // Test sensorPoseToGlobal with robot at (48, 48, 0)
+    // Use the global sensor pose instances from main.cpp
+
+
+    // Test case 1: robot at (48, 48, 0)
+    units::Pose robotPose1(48_in, 48_in, 0_cDeg);
+    units::Pose globalBack1 = utils::sensorPoseToGlobal(robotPose1, backSensorPos);
+    units::Pose globalLeft1 = utils::sensorPoseToGlobal(robotPose1, leftSensorPos);
+    units::Pose globalRight1 = utils::sensorPoseToGlobal(robotPose1, rightSensorPos);
+    units::Pose globalFront1 = utils::sensorPoseToGlobal(robotPose1, frontSensorPos);
+
+    std::cout << "\n--- Robot Pose: (" << to_in(robotPose1.x) << ", " << to_in(robotPose1.y) << ", " << to_cDeg(robotPose1.orientation) << ") ---\n";
+    std::cout << "Back Sensor Pose (robot-relative): (" << to_in(backSensorPos.x) << ", " << to_in(backSensorPos.y) << ", " << to_cDeg(backSensorPos.orientation) << ")\n";
+    std::cout << "Left Sensor Pose (robot-relative): (" << to_in(leftSensorPos.x) << ", " << to_in(leftSensorPos.y) << ", " << to_cDeg(leftSensorPos.orientation) << ")\n";
+    std::cout << "Right Sensor Pose (robot-relative): (" << to_in(rightSensorPos.x) << ", " << to_in(rightSensorPos.y) << ", " << to_cDeg(rightSensorPos.orientation) << ")\n";
+    std::cout << "Front Sensor Pose (robot-relative): (" << to_in(frontSensorPos.x) << ", " << to_in(frontSensorPos.y) << ", " << to_cDeg(frontSensorPos.orientation) << ")\n";
+    std::cout << "Back Sensor Global: (" << to_in(globalBack1.x) << ", " << to_in(globalBack1.y) << ", " << to_cDeg(globalBack1.orientation) << ")\n";
+    std::cout << "Left Sensor Global: (" << to_in(globalLeft1.x) << ", " << to_in(globalLeft1.y) << ", " << to_cDeg(globalLeft1.orientation) << ")\n";
+    std::cout << "Right Sensor Global: (" << to_in(globalRight1.x) << ", " << to_in(globalRight1.y) << ", " << to_cDeg(globalRight1.orientation) << ")\n";
+    std::cout << "Front Sensor Global: (" << to_in(globalFront1.x) << ", " << to_in(globalFront1.y) << ", " << to_cDeg(globalFront1.orientation) << ")\n";
+
+    // Print expected distance readings for test case 1
+    std::cout << "Expected Back Sensor Distance: " << to_in(utils::calculateExpectedDistance(robotPose1, backSensorPos)) << " in\n";
+    std::cout << "Expected Left Sensor Distance: " << to_in(utils::calculateExpectedDistance(robotPose1, leftSensorPos)) << " in\n";
+    std::cout << "Expected Right Sensor Distance: " << to_in(utils::calculateExpectedDistance(robotPose1, rightSensorPos)) << " in\n";
+    std::cout << "Expected Front Sensor Distance: " << to_in(utils::calculateExpectedDistance(robotPose1, frontSensorPos)) << " in\n";
+
+    // Test case 2: robot at (48, 48, 270)
+    units::Pose robotPose2(48_in, 48_in, 270_cDeg);
+    units::Pose globalBack2 = utils::sensorPoseToGlobal(robotPose2, backSensorPos);
+    units::Pose globalLeft2 = utils::sensorPoseToGlobal(robotPose2, leftSensorPos);
+    units::Pose globalRight2 = utils::sensorPoseToGlobal(robotPose2, rightSensorPos);
+    units::Pose globalFront2 = utils::sensorPoseToGlobal(robotPose2, frontSensorPos);
+
+    std::cout << "\n--- Robot Pose: (" << to_in(robotPose2.x) << ", " << to_in(robotPose2.y) << ", " << to_cDeg(robotPose2.orientation) << ") ---\n";
+    std::cout << "Back Sensor Pose (robot-relative): (" << to_in(backSensorPos.x) << ", " << to_in(backSensorPos.y) << ", " << to_cDeg(backSensorPos.orientation) << ")\n";
+    std::cout << "Left Sensor Pose (robot-relative): (" << to_in(leftSensorPos.x) << ", " << to_in(leftSensorPos.y) << ", " << to_cDeg(leftSensorPos.orientation) << ")\n";
+    std::cout << "Right Sensor Pose (robot-relative): (" << to_in(rightSensorPos.x) << ", " << to_in(rightSensorPos.y) << ", " << to_cDeg(rightSensorPos.orientation) << ")\n";
+    std::cout << "Front Sensor Pose (robot-relative): (" << to_in(frontSensorPos.x) << ", " << to_in(frontSensorPos.y) << ", " << to_cDeg(frontSensorPos.orientation) << ")\n";
+    std::cout << "Back Sensor Global: (" << to_in(globalBack2.x) << ", " << to_in(globalBack2.y) << ", " << to_cDeg(globalBack2.orientation) << ")\n";
+    std::cout << "Left Sensor Global: (" << to_in(globalLeft2.x) << ", " << to_in(globalLeft2.y) << ", " << to_cDeg(globalLeft2.orientation) << ")\n";
+    std::cout << "Right Sensor Global: (" << to_in(globalRight2.x) << ", " << to_in(globalRight2.y) << ", " << to_cDeg(globalRight2.orientation) << ")\n";
+    std::cout << "Front Sensor Global: (" << to_in(globalFront2.x) << ", " << to_in(globalFront2.y) << ", " << to_cDeg(globalFront2.orientation) << ")\n";
+
+    // Print expected distance readings for test case 2
+    std::cout << "Expected Back Sensor Distance: " << to_in(utils::calculateExpectedDistance(robotPose2, backSensorPos)) << " in\n";
+    std::cout << "Expected Left Sensor Distance: " << to_in(utils::calculateExpectedDistance(robotPose2, leftSensorPos)) << " in\n";
+    std::cout << "Expected Right Sensor Distance: " << to_in(utils::calculateExpectedDistance(robotPose2, rightSensorPos)) << " in\n";
+    std::cout << "Expected Front Sensor Distance: " << to_in(utils::calculateExpectedDistance(robotPose2, frontSensorPos)) << " in\n";
+}
+
