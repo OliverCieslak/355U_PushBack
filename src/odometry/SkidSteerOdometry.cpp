@@ -1,10 +1,6 @@
 #include "odometry/SkidSteerOdometry.hpp"
 
 namespace odometry {
-// Convert compass degrees (CW from North) to standard math degrees (CCW from East)
-static Angle compassToStandard(Angle compassAngle) {
-    return compassAngle - from_cDeg(90.0);
-}
 void SkidSteerOdometry::printDiagnostics() const {
     m_mutex.take(20);
     std::cout << "[Odometry Diagnostics] Pose: (" << to_in(m_pose.x) << ", " << to_in(m_pose.y) << ", " << to_cDeg(m_pose.orientation) << ")\n";
@@ -75,7 +71,6 @@ void SkidSteerOdometry::stop() {
     if (m_isRunning) {
         m_isRunning = false;
         if (m_updateTask != nullptr) {
-    Angle currentHeading = m_imu->getRotation() + from_stDeg(m_imuOffset);
             delete m_updateTask;
             m_updateTask = nullptr;
         }
@@ -101,7 +96,8 @@ units::Pose SkidSteerOdometry::update() {
     // Get current encoder and IMU readings
     Angle currentLeftPosition = m_leftEncoder->getAngle();
     Angle currentRightPosition = m_rightEncoder->getAngle();
-    Angle currentHeading = units::constrainAngle180(compassToStandard(m_imu->getRotation()) + from_cDeg(m_imuOffset));
+    // Use IMU standard angle plus standard-degree offset, normalized to [-180, 180)
+    Angle currentHeading = units::constrainAngle180(m_imu->getRotation() + from_stDeg(m_imuOffset));
 
     // Calculate changes in encoder readings
     Angle leftDelta = currentLeftPosition - m_prevLeftPosition;
@@ -208,7 +204,8 @@ void SkidSteerOdometry::resetPose(const units::Pose& pose) {
     m_prevLeftPosition = m_leftEncoder->getAngle();
     m_prevRightPosition = m_rightEncoder->getAngle();
     // m_imu->setRotation(pose.orientation); // Disabled due to hang
-    m_imuOffset = to_cDeg(units::constrainAngle180(pose.orientation - compassToStandard(m_imu->getRotation())));
+    // Store IMU offset in standard degrees for consistent math
+    m_imuOffset = to_stDeg(units::constrainAngle180(pose.orientation - m_imu->getRotation()));
     m_prevHeading = pose.orientation;
     m_mutex.give();
 }
