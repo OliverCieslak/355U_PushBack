@@ -18,9 +18,6 @@ namespace utils {
 // All angles must use compass heading (0° = North, 90° = East, 180° = South, 270° = West).
 // Returns the expected distance from the sensor to the nearest field wall.
 Length calculateExpectedDistance(const units::Pose& robotPose, const units::Pose& sensorOffset) {
-    // Debug: Print input values for transformation
-    // std::cout << "[TransformDebug] Robot pose: (" << to_in(robotPose.x) << ", " << to_in(robotPose.y) << ", " << to_cDeg(robotPose.orientation) << ")" << std::endl;
-    // std::cout << "[TransformDebug] Sensor offset: (" << to_in(sensorOffset.x) << ", " << to_in(sensorOffset.y) << ", " << to_cDeg(sensorOffset.orientation) << ")" << std::endl;
     // Use sensorPoseToGlobal for transformation
     units::Pose globalSensorPose = sensorPoseToGlobal(robotPose, sensorOffset);
 
@@ -28,19 +25,15 @@ Length calculateExpectedDistance(const units::Pose& robotPose, const units::Pose
     double cosAngle = fastCos(to_stRad(globalSensorPose.orientation));
     double sinAngle = fastSin(to_stRad(globalSensorPose.orientation));
 
-    // Print only one line per sensor
-    // std::cout << "[ExpectedDistance] Sensor global pose: (" << to_in(globalSensorPose.x) << ", " << to_in(globalSensorPose.y)
-    //          << ") heading " << to_cDeg(globalSensorPose.orientation) << " deg" << std::endl;
-
     // Define epsilon to avoid division by very small values
     const double EPSILON = 0.000001; // A tiny number to prevent dividing by zero
     
-    // Calculate distances to each wall efficiently
+    // Calculate distances to each wall, but only if sensor is pointing toward that wall
     Length minDist = 999_ft;
     const char* chosenWall = "None";
     double chosenValue = 0.0;
     
-    // North wall (y = halfHeight)
+    // North wall (y = halfHeight) - only if pointing North (sinAngle > 0)
     if (sinAngle > EPSILON) {
         Length distToNorth = (halfHeight - globalSensorPose.y) / sinAngle;
         if (distToNorth > EPSILON * 1_in && distToNorth < minDist) {
@@ -49,8 +42,8 @@ Length calculateExpectedDistance(const units::Pose& robotPose, const units::Pose
             chosenValue = distToNorth.convert(in);
         }
     }
-    // South wall (y = -halfHeight)
-    if (-sinAngle > EPSILON) {
+    // South wall (y = -halfHeight) - only if pointing South (sinAngle < 0)
+    if (sinAngle < -EPSILON) {
         Length distToSouth = (globalSensorPose.y - (-halfHeight)) / (-sinAngle);
         if (distToSouth > EPSILON * 1_in && distToSouth < minDist) {
             minDist = distToSouth;
@@ -58,7 +51,7 @@ Length calculateExpectedDistance(const units::Pose& robotPose, const units::Pose
             chosenValue = distToSouth.convert(in);
         }
     }
-    // East wall (x = halfWidth)
+    // East wall (x = halfWidth) - only if pointing East (cosAngle > 0)
     if (cosAngle > EPSILON) {
         Length distToEast = (halfWidth - globalSensorPose.x) / cosAngle;
         if (distToEast > EPSILON * 1_in && distToEast < minDist) {
@@ -67,8 +60,8 @@ Length calculateExpectedDistance(const units::Pose& robotPose, const units::Pose
             chosenValue = distToEast.convert(in);
         }
     }
-    // West wall (x = -halfWidth)
-    if (-cosAngle > EPSILON) {
+    // West wall (x = -halfWidth) - only if pointing West (cosAngle < 0)
+    if (cosAngle < -EPSILON) {
         Length distToWest = (globalSensorPose.x - (-halfWidth)) / (-cosAngle);
         if (distToWest > EPSILON * 1_in && distToWest < minDist) {
             minDist = distToWest;
@@ -77,9 +70,9 @@ Length calculateExpectedDistance(const units::Pose& robotPose, const units::Pose
         }
     }
     // Debug output for which wall and value was chosen
-    // std::cout << "[ExpectedDistance] Sensor global pose: (" << to_in(globalSensorPose.x) << ", " << to_in(globalSensorPose.y)
-    //          << ") heading " << to_cDeg(globalSensorPose.orientation) << " deg: Closest wall is " << chosenWall
-    //          << " at " << chosenValue << " in" << std::endl;
+    // std::cout << "[ExpectedDistance Debug] Sensor at global (" << to_in(globalSensorPose.x) << ", " << to_in(globalSensorPose.y) << ") facing " 
+    //           << to_stDeg(globalSensorPose.orientation) << "° => Closest wall is " << chosenWall
+    //           << " at " << chosenValue << " in (field bounds: ±" << to_in(halfWidth) << " x, ±" << to_in(halfHeight) << " y)" << std::endl;
     return minDist;
 }
     // Utility functions below are now inside the utils namespace
@@ -91,8 +84,8 @@ Length calculateExpectedDistance(const units::Pose& robotPose, const units::Pose
 
     Length calculateV5DistanceSensorNoise(Length measuredDistance) {
         const Length THRESHOLD = 200_mm;
-        const Length FIXED_ACCURACY = 15_mm;
-        const double PERCENTAGE_ACCURACY = 0.05;
+        const Length FIXED_ACCURACY = 30_mm;  // Increased from 15mm
+        const double PERCENTAGE_ACCURACY = 0.15; // Increased from 0.05
         if (measuredDistance < THRESHOLD) {
             return FIXED_ACCURACY;
         } else {
@@ -102,8 +95,25 @@ Length calculateExpectedDistance(const units::Pose& robotPose, const units::Pose
 
     bool isValidDistanceSensorReading(Length distance) {
         const Length MIN_RANGE = 20_mm;
-        const Length MAX_RANGE = 2400_mm;
-        return (distance >= MIN_RANGE && distance <= MAX_RANGE);
+        const Length MAX_RANGE = 2400_mm;  // V5 sensor max range
+        const Length FIELD_MAX = 110_in;   // Stricter field-based limit
+        
+        // First check sensor hardware limits
+        if (distance < MIN_RANGE || distance > MAX_RANGE) {
+            return false;
+        }
+        
+        // Then check field geometry limits
+        if (distance > FIELD_MAX) {
+            return false;
+        }
+        
+        // Reject known error values
+        if (std::abs(to_in(distance) - 393.66) < 0.5) {  // Common V5 error value
+            return false;
+        }
+        
+        return true;
     }
 
     bool isWithinFieldBoundaries(const Length& x, const Length& y) {

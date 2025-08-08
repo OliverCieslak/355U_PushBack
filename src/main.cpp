@@ -127,20 +127,13 @@ control::DriverControl driverControl(leftMotors, rightMotors, controller);
 // E.g. robot facing north in the northeast corner of the field should give
 // the front.y and right.x positions
 
-/** 
-
-  Based on measurements of the basket bot, these are the 
-  for the easy to measure axis.
-  
-units::Pose backSensorPos(0_in, -7.64_in, 180_cDeg);
-units::Pose leftSensorPos(-6.0_in, 0_in, 270_cDeg);
-units::Pose rightSensorPos(7.15_in, 0_in, 90_cDeg);
-units::Pose frontSensorPos(0_in, 9.16_in, 0_cDeg);
- */
-units::Pose backSensorPos(6.0_in, -7.64_in, 180_cDeg);
-units::Pose leftSensorPos(-6.0_in, 6.5_in, 270_cDeg);
-units::Pose rightSensorPos(7.15_in, 5_in, 90_cDeg);
-units::Pose frontSensorPos(-5.5_in, 9.16_in, 0_cDeg);
+// Sensor orientations are relative to robot frame - use standard angles directly
+// When robot faces North (0°compass): front→North, right→East, back→South, left→West  
+// These angles are RELATIVE to robot's orientation (0° = forward, -90°/270° = right, etc.)
+units::Pose backSensorPos(0_in, -7.64_in, from_stDeg(-180.0));  // Back sensor: -180° relative (backward)  
+units::Pose leftSensorPos(-6.0_in, 6.5_in, from_stDeg(90.0));     // Left sensor: 90° relative (left)
+units::Pose rightSensorPos(7.15_in, 5_in, from_stDeg(-90.0));     // Right sensor: -90° relative (right)
+units::Pose frontSensorPos(-5.5_in, 9.16_in, from_stDeg(0.0));    // Front sensor: 0° relative (forward)
 
 // Setup configuration values - initial estimates that will be refined
 Length trackWidth = 11.0_in;		// Initial estimate for track width
@@ -194,7 +187,9 @@ control::PIDDriveController pidDriveController(
 		{trackWidth, wheelDiameter, linearKp, linearKi, linearKd, angularKp, angularKi, angularKd, kV, kS},
 		[]()
 		{ return odometrySystem.getPose(); });
-localization::ParticleFilter particleFilter(odometrySystem, initialPose);
+
+// Optimized particle count to 1500 for balanced performance and accuracy
+localization::ParticleFilter particleFilter(odometrySystem, initialPose, 1500);  // Balanced at 1500 particles
 
 // Function to calculate expected distance to wall has been moved to utils/DistanceUtils.hpp
 
@@ -314,41 +309,6 @@ void initialize()
 				return utils::calculateExpectedDistance(pose, frontSensorPos);
 			});
 
-	particleFilter.addDistanceSensor(
-		0, frontSensorPos,
-		[]() { return from_mm(frontSensor.get_distance()); },
-		[]() { return frontSensor.get_confidence(); },
-		[](const units::Pose &pose) -> Length {
-			extern units::Pose frontSensorPos;
-			return utils::calculateExpectedDistance(pose, frontSensorPos);
-		});
-
-	particleFilter.addDistanceSensor(
-		1, backSensorPos,
-		[]() { return from_mm(backSensor.get_distance()); },
-		[]() { return backSensor.get_confidence(); },
-		[](const units::Pose &pose) -> Length {
-			extern units::Pose backSensorPos;
-			return utils::calculateExpectedDistance(pose, backSensorPos);
-		});
-
-	particleFilter.addDistanceSensor(
-		2, leftSensorPos,
-		[]() { return from_mm(leftSensor.get_distance()); },
-		[]() { return leftSensor.get_confidence(); },
-		[](const units::Pose &pose) -> Length {
-			extern units::Pose leftSensorPos;
-			return utils::calculateExpectedDistance(pose, leftSensorPos);
-		});
-
-	particleFilter.addDistanceSensor(
-		3, rightSensorPos,
-		[]() { return from_mm(rightSensor.get_distance()); },
-		[]() { return rightSensor.get_confidence(); },
-		[](const units::Pose &pose) -> Length {
-			extern units::Pose rightSensorPos;
-			return utils::calculateExpectedDistance(pose, rightSensorPos);
-		});
 	particleFilter.addDistanceSensor(
 			1,						 // ID
 			backSensorPos, // Now passing the complete pose with position and orientation

@@ -360,6 +360,20 @@ auto clamp = [](double v) { return std::max(-10.0, std::min(10.0, v)); };
 }
 
 void runParticleFilterTest() {    
+    // First, diagnose sensor hardware
+    printf("\n=== SENSOR HARDWARE DIAGNOSTIC ===\n");
+    printf("Raw sensor readings and confidence values:\n");
+    printf("Front sensor (port 7): distance=%dmm, confidence=%d/63\n", 
+           frontSensor.get_distance(), frontSensor.get_confidence());
+    printf("Right sensor (port 8): distance=%dmm, confidence=%d/63\n", 
+           rightSensor.get_distance(), rightSensor.get_confidence());
+    printf("Back sensor (port 10): distance=%dmm, confidence=%d/63\n", 
+           backSensor.get_distance(), backSensor.get_confidence());
+    printf("Left sensor (port 6): distance=%dmm, confidence=%d/63\n", 
+           leftSensor.get_distance(), leftSensor.get_confidence());
+    printf("Note: 9999mm (393.66\") indicates sensor error/no reading\n");
+    printf("======================================\n\n");
+    
     double prosLeft1Pos = prosLeft1.get_position();
     double prosLeft2Pos = prosLeft2.get_position();
     double prosLeft3Pos = prosLeft3.get_position();
@@ -514,56 +528,84 @@ void runParticleFilterTest() {
     */
 }
 
-void testPoseTransformAndExpectedDistance() {
-    // Test sensorPoseToGlobal with robot at (48, 48, 0)
-    // Use the global sensor pose instances from main.cpp
+// Debug function to test left sensor connectivity and readings
+void debugLeftSensorConnectivity() {
+    std::cout << "\n=== LEFT SENSOR CONNECTIVITY DEBUG ===\n";
+    std::cout << "Testing left sensor on port 6...\n\n";
+    
+    for (int i = 0; i < 10; ++i) {
+        int rawDistance = leftSensor.get_distance();
+        int confidence = leftSensor.get_confidence();
+        int objectSize = leftSensor.get_object_size();
+        double distanceInches = to_in(from_mm(rawDistance));
+        
+        std::cout << "Reading " << (i+1) << ": ";
+        std::cout << rawDistance << "mm (" << distanceInches << "\"), ";
+        std::cout << "confidence=" << confidence << "/63, ";
+        std::cout << "size=" << objectSize << std::endl;
+        
+        if (rawDistance == 9999) {
+            std::cout << "  → ERROR: 9999mm indicates no valid reading (sensor error)" << std::endl;
+        } else if (confidence == 0) {
+            std::cout << "  → WARNING: Zero confidence - sensor may not be detecting anything" << std::endl;
+        } else if (confidence < 20) {
+            std::cout << "  → CAUTION: Low confidence reading" << std::endl;
+        } else {
+            std::cout << "  → OK: Good reading with solid confidence" << std::endl;
+        }
+        
+        pros::delay(500);  // Wait 0.5 seconds between readings
+    }
+    
+    std::cout << "\nDIAGNOSTIC SUGGESTIONS:\n";
+    std::cout << "- If all readings are 9999mm: Check physical connection to port 6\n";
+    std::cout << "- If confidence is always 0: Sensor may be blocked or facing wrong direction\n";
+    std::cout << "- If readings vary normally: Sensor is working correctly\n";
+    std::cout << "=========================================\n";
+}
 
-
-    // Test case 1: robot at (48, 48, 0)
-    units::Pose robotPose1(48_in, 48_in, 0_cDeg);
-    units::Pose globalBack1 = utils::sensorPoseToGlobal(robotPose1, backSensorPos);
-    units::Pose globalLeft1 = utils::sensorPoseToGlobal(robotPose1, leftSensorPos);
-    units::Pose globalRight1 = utils::sensorPoseToGlobal(robotPose1, rightSensorPos);
-    units::Pose globalFront1 = utils::sensorPoseToGlobal(robotPose1, frontSensorPos);
-
-    std::cout << "\n--- Robot Pose: (" << to_in(robotPose1.x) << ", " << to_in(robotPose1.y) << ", " << to_cDeg(robotPose1.orientation) << ") ---\n";
-    std::cout << "Back Sensor Pose (robot-relative): (" << to_in(backSensorPos.x) << ", " << to_in(backSensorPos.y) << ", " << to_cDeg(backSensorPos.orientation) << ")\n";
-    std::cout << "Left Sensor Pose (robot-relative): (" << to_in(leftSensorPos.x) << ", " << to_in(leftSensorPos.y) << ", " << to_cDeg(leftSensorPos.orientation) << ")\n";
-    std::cout << "Right Sensor Pose (robot-relative): (" << to_in(rightSensorPos.x) << ", " << to_in(rightSensorPos.y) << ", " << to_cDeg(rightSensorPos.orientation) << ")\n";
-    std::cout << "Front Sensor Pose (robot-relative): (" << to_in(frontSensorPos.x) << ", " << to_in(frontSensorPos.y) << ", " << to_cDeg(frontSensorPos.orientation) << ")\n";
-    std::cout << "Back Sensor Global: (" << to_in(globalBack1.x) << ", " << to_in(globalBack1.y) << ", " << to_cDeg(globalBack1.orientation) << ")\n";
-    std::cout << "Left Sensor Global: (" << to_in(globalLeft1.x) << ", " << to_in(globalLeft1.y) << ", " << to_cDeg(globalLeft1.orientation) << ")\n";
-    std::cout << "Right Sensor Global: (" << to_in(globalRight1.x) << ", " << to_in(globalRight1.y) << ", " << to_cDeg(globalRight1.orientation) << ")\n";
-    std::cout << "Front Sensor Global: (" << to_in(globalFront1.x) << ", " << to_in(globalFront1.y) << ", " << to_cDeg(globalFront1.orientation) << ")\n";
-
-    // Print expected distance readings for test case 1
-    std::cout << "Expected Back Sensor Distance: " << to_in(utils::calculateExpectedDistance(robotPose1, backSensorPos)) << " in\n";
-    std::cout << "Expected Left Sensor Distance: " << to_in(utils::calculateExpectedDistance(robotPose1, leftSensorPos)) << " in\n";
-    std::cout << "Expected Right Sensor Distance: " << to_in(utils::calculateExpectedDistance(robotPose1, rightSensorPos)) << " in\n";
-    std::cout << "Expected Front Sensor Distance: " << to_in(utils::calculateExpectedDistance(robotPose1, frontSensorPos)) << " in\n";
-
-    // Test case 2: robot at (48, 48, 270)
-    units::Pose robotPose2(48_in, 48_in, 270_cDeg);
-    units::Pose globalBack2 = utils::sensorPoseToGlobal(robotPose2, backSensorPos);
-    units::Pose globalLeft2 = utils::sensorPoseToGlobal(robotPose2, leftSensorPos);
-    units::Pose globalRight2 = utils::sensorPoseToGlobal(robotPose2, rightSensorPos);
-    units::Pose globalFront2 = utils::sensorPoseToGlobal(robotPose2, frontSensorPos);
-
-    std::cout << "\n--- Robot Pose: (" << to_in(robotPose2.x) << ", " << to_in(robotPose2.y) << ", " << to_cDeg(robotPose2.orientation) << ") ---\n";
-    std::cout << "Back Sensor Pose (robot-relative): (" << to_in(backSensorPos.x) << ", " << to_in(backSensorPos.y) << ", " << to_cDeg(backSensorPos.orientation) << ")\n";
-    std::cout << "Left Sensor Pose (robot-relative): (" << to_in(leftSensorPos.x) << ", " << to_in(leftSensorPos.y) << ", " << to_cDeg(leftSensorPos.orientation) << ")\n";
-    std::cout << "Right Sensor Pose (robot-relative): (" << to_in(rightSensorPos.x) << ", " << to_in(rightSensorPos.y) << ", " << to_cDeg(rightSensorPos.orientation) << ")\n";
-    std::cout << "Front Sensor Pose (robot-relative): (" << to_in(frontSensorPos.x) << ", " << to_in(frontSensorPos.y) << ", " << to_cDeg(frontSensorPos.orientation) << ")\n";
-    std::cout << "Back Sensor Global: (" << to_in(globalBack2.x) << ", " << to_in(globalBack2.y) << ", " << to_cDeg(globalBack2.orientation) << ")\n";
-    std::cout << "Left Sensor Global: (" << to_in(globalLeft2.x) << ", " << to_in(globalLeft2.y) << ", " << to_cDeg(globalLeft2.orientation) << ")\n";
-    std::cout << "Right Sensor Global: (" << to_in(globalRight2.x) << ", " << to_in(globalRight2.y) << ", " << to_cDeg(globalRight2.orientation) << ")\n";
-    std::cout << "Front Sensor Global: (" << to_in(globalFront2.x) << ", " << to_in(globalFront2.y) << ", " << to_cDeg(globalFront2.orientation) << ")\n";
-
-    // Print expected distance readings for test case 2
-    std::cout << "Expected Back Sensor Distance: " << to_in(utils::calculateExpectedDistance(robotPose2, backSensorPos)) << " in\n";
-    std::cout << "Expected Left Sensor Distance: " << to_in(utils::calculateExpectedDistance(robotPose2, leftSensorPos)) << " in\n";
-    std::cout << "Expected Right Sensor Distance: " << to_in(utils::calculateExpectedDistance(robotPose2, rightSensorPos)) << " in\n";
-    std::cout << "Expected Front Sensor Distance: " << to_in(utils::calculateExpectedDistance(robotPose2, frontSensorPos)) << " in\n";
+// Debug function specifically for back sensor coordinate transformation
+void debugBackSensorTransformation() {
+    std::cout << "\n=== BACK SENSOR COORDINATE DEBUG ===\n";
+    
+    // Test robot at (48, 48, 0°) - should be ~24" from south wall
+    units::Pose testPose(48_in, 48_in, 0_cDeg);
+    
+    std::cout << "Robot pose: (" << to_in(testPose.x) << ", " << to_in(testPose.y) 
+              << ", " << to_cDeg(testPose.orientation) << "°)\n";
+    std::cout << "Back sensor relative position: (" << to_in(backSensorPos.x) 
+              << ", " << to_in(backSensorPos.y) << ", " << to_cDeg(backSensorPos.orientation) << "°)\n";
+    
+    // Calculate global sensor position
+    units::Pose globalSensorPose = utils::sensorPoseToGlobal(testPose, backSensorPos);
+    std::cout << "Back sensor global position: (" << to_in(globalSensorPose.x) 
+              << ", " << to_in(globalSensorPose.y) << ", " << to_cDeg(globalSensorPose.orientation) << "°)\n";
+    
+    // Calculate expected distance using our function
+    Length expectedDistance = utils::calculateExpectedDistance(testPose, backSensorPos);
+    std::cout << "Expected distance to wall: " << to_in(expectedDistance) << " in\n";
+    
+    // Manual calculation for verification
+    // Back sensor should be at (48+6.0, 48-7.64) = (54.0, 40.36) facing 180° (South)
+    // Distance to south wall at y=-72 should be: 40.36 - (-72) = 112.36"
+    double manualGlobalX = to_in(testPose.x) + to_in(backSensorPos.x);
+    double manualGlobalY = to_in(testPose.y) + to_in(backSensorPos.y); 
+    double manualDistanceToSouthWall = manualGlobalY - (-72.0);  // South wall at -72"
+    
+    std::cout << "Manual calculation verification:\n";
+    std::cout << "  Sensor global position: (" << manualGlobalX << ", " << manualGlobalY << ")\n";
+    std::cout << "  Distance to south wall (-72\"): " << manualDistanceToSouthWall << " in\n";
+    
+    // Get actual sensor reading for comparison
+    double actualReading = to_in(from_mm(backSensor.get_distance()));
+    int confidence = backSensor.get_confidence();
+    std::cout << "Actual sensor reading: " << actualReading << " in (confidence: " << confidence << "/63)\n";
+    
+    std::cout << "ERROR ANALYSIS:\n";
+    std::cout << "  Expected: " << to_in(expectedDistance) << " in\n";
+    std::cout << "  Actual: " << actualReading << " in\n";
+    std::cout << "  Difference: " << (to_in(expectedDistance) - actualReading) << " in\n";
+    std::cout << "=====================================\n";
 }
 
 // Helper function to solve for missing sensor coordinate (e.g., front.x, right.y, etc.)

@@ -13,3 +13,5 @@ void runParticleFilterTest();
 void testPoseTransformAndExpectedDistance();
 void calibrateParticleFilterDistanceSensorPoses();
 void calibrateLeftYAndBackXAtRotatedHeading();
+void debugBackSensorTransformation();
+void debugLeftSensorConnectivity();

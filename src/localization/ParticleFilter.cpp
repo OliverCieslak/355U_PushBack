@@ -256,6 +256,10 @@ namespace localization
 
     void ParticleFilter::sensorUpdate()
     {
+        // DEBUG: Print current estimated pose for context
+        units::Pose currentPose = calculateEstimatedPose();
+        // Removed sensor debug logging for cleaner output
+        
         // Evaluate each sensor to find the best ones to use
         m_sensorScores.clear(); // Reuse the vector instead of creating a new one
         m_sensorScores.reserve(m_sensors.size());
@@ -272,17 +276,70 @@ namespace localization
             // Cache the measurement for logging
             m_sensorMeasurements.push_back(measurement);
 
-            // Check if the reading is valid (within V5 Distance Sensor range)
-            if (!utils::isValidDistanceSensorReading(measurement))
-            {
-                // Invalid reading, assign a low score
-                m_sensorScores.emplace_back(sensor.id, 0.0, measurement);
+            // Compare actual vs expected distance for validation
+            Length expectedDistance = sensor.getExpectedMeasurement(currentPose);
+
+            // Get sensor confidence first - V5 distance sensor returns 0-63
+            int confidence = sensor.getConfidence();
+            
+            // STRICT sensor validation - reject sensors with poor readings
+            bool sensorValid = true;
+            std::string rejectReason = "";
+            
+            // 1. Check confidence level - slightly relaxed for single-sensor scenarios
+            if (confidence < 12) {  // Lowered from 15 to 12 - need some flexibility with only 1 working sensor
+                sensorValid = false;
+                rejectReason = "LOW CONFIDENCE (" + std::to_string(confidence) + "/63)";
+            }
+            
+            // 2. Check if reading is within physical sensor range
+            else if (!utils::isValidDistanceSensorReading(measurement)) {
+                sensorValid = false;
+                rejectReason = "OUT OF SENSOR RANGE";
+            }
+            
+            // 3. Check if reading makes sense given field size (max diagonal ~102")
+            else if (to_in(measurement) > 110.0) {  // Stricter than sensor max, based on field geometry
+                sensorValid = false;
+                rejectReason = "EXCEEDS FIELD SIZE";
+            }
+            
+            // 4. Check if reading is suspiciously close to sensor error value
+            else if (std::abs(to_in(measurement) - 393.66) < 1.0) {  // Known error value
+                sensorValid = false;
+                rejectReason = "KNOWN ERROR VALUE";
+            }
+            
+            // 5. Check if expected distance is reasonable (sensor pointing toward field boundary)
+            else if (to_in(expectedDistance) > 110.0) {
+                sensorValid = false;
+                rejectReason = "EXPECTED DISTANCE OUT OF FIELD";
+            }
+            
+            // 6. Check if actual vs expected distance difference indicates obstruction (game object, etc.)
+            else if (std::abs(to_in(measurement - expectedDistance)) > 50.0) {
+                sensorValid = false;
+                rejectReason = "LARGE DISTANCE DISCREPANCY";
+            }
+            
+            if (!sensorValid) {
+                // Sensor rejected - skip without detailed logging
                 continue;
             }
 
-            // Use the sensor's confidence value (0-63) instead of distance-based calculation
-            int confidence = sensor.getConfidence();
+            // Current sensor status: Front (working), Right/Back/Left (hardware failures - 9999mm readings)
+            // System automatically rejects failed sensors via validation checks above
+
+            // Use confidence-based scoring with additional validation
             double score = (confidence + 1) / 64.0; // Normalize to 0-1 range
+            
+            // Boost score for readings that closely match expected values
+            double errorMagnitude = std::abs(to_in(measurement - expectedDistance));
+            if (errorMagnitude < 2.0) {  // Very close match
+                score *= 1.2;
+            } else if (errorMagnitude > 10.0) {  // Large error
+                score *= 0.5;
+            }
 
             m_sensorScores.emplace_back(sensor.id, score, measurement);
         }
@@ -512,8 +569,8 @@ namespace localization
         // Get current odometry pose for accurate heading-aligned particles
         units::Pose odomPose = m_odometry.getPose();
 
-        // Keep the top N% of particles directly (selective resampling)
-        const double KEEP_PERCENTAGE = 0.20; // Reduced from 0.25 to 0.20
+        // Keep the top N% of particles directly (increased for single-sensor scenarios)
+        const double KEEP_PERCENTAGE = 0.35; // Increased from 0.20 for better single-sensor performance
         size_t keepCount = static_cast<size_t>(m_numParticles * KEEP_PERCENTAGE);
         
         // Always add some particles that respect the odometry heading

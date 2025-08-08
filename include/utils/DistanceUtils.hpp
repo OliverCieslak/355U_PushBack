@@ -17,26 +17,16 @@ namespace utils {
  * @return units::Pose The sensor's global pose on the field
  */
 inline units::Pose sensorPoseToGlobal(const units::Pose& robotPose, const units::Pose& sensorPose) {
-    // Convert compass heading (0=N, 90=E, 180=S, 270=W) to standard trig angle (0=E, 90=N, 180=W, 270=S)
-    auto compassToTrig = [](Angle compass) {
-        return units::constrainAngle180(from_cDeg(90.0 - to_cDeg(compass)));
-    };
-
-    Angle robotThetaTrig = compassToTrig(robotPose.orientation);
-    double cosTheta = fastCos(to_stRad(robotThetaTrig));
-    double sinTheta = fastSin(to_stRad(robotThetaTrig));
+    // Use standard-angle math directly (0 = +X/East, CCW positive)
+    Angle robotTheta = robotPose.orientation;
+    double cosTheta = fastCos(to_stRad(robotTheta));
+    double sinTheta = fastSin(to_stRad(robotTheta));
 
     Length globalSensorX = robotPose.x + sensorPose.x * cosTheta - sensorPose.y * sinTheta;
     Length globalSensorY = robotPose.y + sensorPose.x * sinTheta + sensorPose.y * cosTheta;
 
-    // For orientation, add sensor orientation to robot orientation, but convert sensor orientation from compass to trig before adding, then convert back to compass
-    auto trigToCompass = [](Angle trig) {
-        return units::constrainAngle180(from_cDeg(90.0 - to_cDeg(trig)));
-    };
-
-    Angle sensorOrientationTrig = compassToTrig(sensorPose.orientation);
-    Angle globalOrientationTrig = robotThetaTrig + sensorOrientationTrig;
-    Angle globalSensorOrientation = trigToCompass(globalOrientationTrig);
+    // Sensor global orientation is robot orientation plus sensor relative orientation
+    Angle globalSensorOrientation = units::constrainAngle180(robotPose.orientation + sensorPose.orientation);
 
     return units::Pose(globalSensorX, globalSensorY, globalSensorOrientation);
 }
