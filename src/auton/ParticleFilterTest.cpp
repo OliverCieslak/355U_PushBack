@@ -1,6 +1,8 @@
 // Includes
 #include <vector>
 #include <cmath>
+#include <limits>
+#include <string>
 #include "auton/ParticleFilterTest.hpp"
 #include "main.h"
 
@@ -11,6 +13,7 @@
 #include "viz/FieldView.hpp"
 #include "viz/DiagnosticsView.hpp"
 #include "tuning/CharacterizationView.hpp"
+#include "control/PIDDriveController.hpp"
 #include "pros/motor_group.hpp"
 #include "pros/imu.hpp"
 
@@ -39,324 +42,303 @@ extern units::Pose backSensorPos;
 extern units::Pose leftSensorPos;
 extern units::Pose rightSensorPos;
 extern units::Pose frontSensorPos;
-
-
+extern control::PIDDriveController pidDriveController; // Use the PID controller to turn 20° each step
 
 void calibrateParticleFilterDistanceSensorPoses() {
-    // Helper for calibration: collect odometry pose and sensor readings on Enter
-    std::cout << "\n=== Distance Sensor Calibration Helper ===\n";
-    std::cout << "Start robot at a known pose (e.g., (48, 48, 0)). Move to several positions and press Enter at each.\n";
-    std::cout << "At each step, the system will print odometry pose, expected sensor readings, actual readings, and error.\n";
-    std::cout << "Capture at least 3-4 poses for best results.\n\n";
+    // ========================= OVERVIEW =========================
+    // Goal: Find the true x/y location of each distance sensor on the robot.
+    // Plan:
+    // 1) Start at a known field pose: (48 in, 48 in, 0°).
+    // 2) For 18 steps (18 × 20° = full 360°):
+    //    - Every second, record the odometry pose and 3 quick readings from each sensor
+    //      (one immediately, then +100 ms, then +200 ms). Also record confidence.
+    //    - Turn the robot by +20° using the PID drive controller.
+    // 3) After collecting data, keep each sensor's facing direction (orientation) fixed,
+    //    but adjust its x/y within ±1 inch to best fit all the measurements.
+    // ============================================================
 
-    struct Sample {
-        units::Pose robotPose;
-        double actualFront, actualRight, actualBack, actualLeft;
-        double expectedFront, expectedRight;
+    // Helper structs that keep the code easy to understand
+    struct Reading {
+        double inches;   // distance in inches (NaN if invalid)
+        int confidence;  // 0..63
     };
-    std::vector<Sample> samples;
+    struct SensorTriple {
+        // Three readings from the same pose for one sensor (reduced from 5)
+        Reading r[3];
+        double weightedAvgInches; // confidence-weighted average of valid readings
+        int totalConfidence;      // sum of confidences for the 3 readings (valid ones)
+    };
+    struct PoseSample {
+        units::Pose odomPose;   // robot pose from odometry
+        SensorTriple front;
+        SensorTriple right;
+        SensorTriple back;
+        SensorTriple left;
+    };
 
-    // Hardcode initial pose to (48, 48, 0)
-    // units::Pose initialPose(48_in, 48_in, 0_cDeg);
-    units::Pose initialPose(48_in, 48_in, 180_cDeg);
-    odometrySystem.resetPose(initialPose);
+    // 1) Calculate true robot position using initial sensor readings
+    std::cout << "\n=== Distance Sensor Pose Calibration ===\n";
+    std::cout << "Determining true robot position from sensor readings...\n";
+    
+    // Take initial sensor readings to determine actual robot position
+    // Assume robot is facing north (0°) and roughly centered
+    int frontMm = frontSensor.get_distance();
+    int rightMm = rightSensor.get_distance();
+    int frontConf = frontSensor.get_confidence();
+    int rightConf = rightSensor.get_confidence();
+    
+    std::cout << "Initial sensor readings:\n";
+    std::cout << "  Front: " << frontMm << "mm (conf=" << frontConf << "/63)\n";
+    std::cout << "  Right: " << rightMm << "mm (conf=" << rightConf << "/63)\n";
+    
+    // Calculate robot position assuming:
+    // - Robot is facing north (0°)
+    // - Field boundaries are at ±72" (144" total width/height)
+    // - Front sensor faces north, right sensor faces east
+    Length frontDist = from_mm(frontMm);
+    Length rightDist = from_mm(rightMm);
+    
+    // Robot center position calculation:
+    // If robot faces north (0°) and front sensor reads distance to north wall:
+    // - Robot Y = (distance to north wall) + (robot center to north wall)
+    // - Robot Y = frontDistance + frontSensorOffset.y  [sensor is ahead of center]
+    // If robot faces north (0°) and right sensor reads distance to east wall:
+    // - Robot X = (distance to east wall) + (robot center to east wall) 
+    // - Robot X = rightDistance + rightSensorOffset.x  [sensor is right of center]
+    
+    // For a 144" x 144" field with origin at center (-72" to +72" in both directions):
+    // - North wall is at Y = +72"
+    // - East wall is at X = +72"
+    // So: Robot Y = +72" - (frontDistance + frontSensorOffset.y)
+    //     Robot X = +72" - (rightDistance + rightSensorOffset.x)
+    
+    Length robotY = 72_in - (frontDist + frontSensorPos.y);  
+    Length robotX = 72_in - (rightDist + rightSensorPos.x);
+    
+    units::Pose startPose(robotX, robotY, from_cDeg(0.0));
+    
+    std::cout << "Calculated true robot position: (" << to_in(robotX) << " in, " << to_in(robotY) << " in, 0 deg)\n";
+    std::cout << "  Front sensor: " << to_in(frontDist) << "\" + sensor pos.y=" << to_in(frontSensorPos.y) << "\" = " << to_in(frontDist + frontSensorPos.y) << "\" from north wall\n";
+    std::cout << "  Right sensor: " << to_in(rightDist) << "\" + sensor pos.x=" << to_in(rightSensorPos.x) << "\" = " << to_in(rightDist + rightSensorPos.x) << "\" from east wall\n";
+    std::cout << "  Robot center: (" << to_in(robotX) << ", " << to_in(robotY) << ") = (72 - " << to_in(rightDist + rightSensorPos.x) << ", 72 - " << to_in(frontDist + frontSensorPos.y) << ")\n";
+    
+    // Verify readings make sense
+    if (frontConf < 10 || rightConf < 10) {
+        std::cout << "WARNING: Low sensor confidence. Position may be inaccurate.\n";
+    }
+    if (to_in(robotX) < 10 || to_in(robotX) > 134 || to_in(robotY) < 10 || to_in(robotY) > 134) {
+        std::cout << "WARNING: Calculated position seems outside reasonable field bounds.\n";
+    }
+    
+    odometrySystem.resetPose(startPose);
     odometrySystem.start();
-    std::cout << "Robot pose reset to (48, 48, 0).\n";
 
-    bool useMockData = false; // Set to false to use real sensor readings and odometry pose
-    for (int i = 0; i < 2; ++i) {
-        std::cout << "Move robot to a new pose and press Enter...";
-        std::cin.ignore();
+    std::cout << "Collecting data every second, then turning +20 deg each step...\n";
 
-        units::Pose robotPose;
-        double actualFront, actualRight;
-        if (useMockData) {
-            // Pivot in place at 0/90 headings
-            int headings[2] = {0, 90};
-            robotPose = units::Pose(initialPose.x, initialPose.y, Angle(headings[i] * 100)); // 100 = centidegrees
-            // Mock values for each pass (in inches)
-            switch (i) {
-                case 0:
-                    actualFront = 48.0; actualRight = 36.0; break;
-                case 1:
-                    actualFront = 47.5; actualRight = 35.5; break;
-                default:
-                    actualFront = 48.0; actualRight = 36.0; break;
+    // Helper functions for taking sensor readings
+    auto getDistanceReading = [](pros::v5::Distance& ds, const std::string& sensorName, const units::Pose& robotPose, const units::Pose& sensorPose) -> Reading {
+        int mm = ds.get_distance();
+        int conf = ds.get_confidence();
+        Length d = from_mm(mm);
+
+        // Print the sensor's global position and orientation for debugging
+        units::Pose robotPoseStd(robotPose.x, robotPose.y, from_stDeg(to_stDeg(robotPose.orientation)));
+        units::Pose sensorOffsetStd(sensorPose.x, sensorPose.y, from_stDeg(to_stDeg(sensorPose.orientation)));
+        units::Pose globalSensorPose = utils::sensorPoseToGlobal(robotPoseStd, sensorOffsetStd);
+        std::cout << sensorName << " sensor global pose: (x=" << to_in(globalSensorPose.x)
+                  << ", y=" << to_in(globalSensorPose.y)
+                  << ", theta=" << to_stDeg(globalSensorPose.orientation) << "° st / "
+                  << to_cDeg(globalSensorPose.orientation) << "° compass)" << std::endl;
+
+        // Calculate expected distance for comparison
+        Length expectedDist = utils::calculateExpectedDistance(robotPose, sensorPose);
+        double expectedInches = to_in(expectedDist);
+
+        // Very permissive filtering - accept confidence as low as 5/63 (~8%)
+        // to maximize data collection
+        if (conf < 5 || !utils::isValidDistanceSensorReading(d)) {
+            std::cout << sensorName << ": REJECTED (conf=" << conf << "/63, dist=" << to_in(d) << " in) vs expected " << expectedInches << " in" << std::endl;
+            return {std::numeric_limits<double>::quiet_NaN(), 0};
+        }
+
+        // Additional field-specific validation - readings beyond field diagonal are impossible
+        double inches = to_in(d);
+        if (inches > 170.0) {  // Field diagonal is ~170 inches, anything beyond is clearly wrong
+            std::cout << sensorName << ": REJECTED (too far: " << inches << " in) vs expected " << expectedInches << " in" << std::endl;
+            return {std::numeric_limits<double>::quiet_NaN(), 0};
+        }
+
+        // Reject readings that are suspiciously close to the 393.66" error value
+        if (std::abs(inches - 393.66) < 1.0) {
+            std::cout << sensorName << ": REJECTED (error value: " << inches << " in) vs expected " << expectedInches << " in" << std::endl;
+            return {std::numeric_limits<double>::quiet_NaN(), 0};
+        }
+
+        // Print detailed comparison between actual and expected
+        double error = std::abs(inches - expectedInches);
+        std::cout << sensorName << ": " << inches << " in (conf=" << conf << "/63) vs expected " << expectedInches << " in (error=" << error << " in)" << std::endl;
+
+        return {inches, conf};
+    };
+
+    auto takeSensorTriple = [&](pros::v5::Distance& ds, const std::string& sensorName, const units::Pose& robotPose, const units::Pose& sensorPose) -> SensorTriple {
+        SensorTriple t{};
+        std::cout << "  " << sensorName << " sensor readings:" << std::endl;
+        // Take 3 readings with 50ms spacing for better noise filtering
+        for (int i = 0; i < 3; ++i) {
+            t.r[i] = getDistanceReading(ds, sensorName, robotPose, sensorPose);
+            if (i < 2) pros::delay(50); // 50ms between readings (100ms total)
+        }
+
+        // Compute confidence-weighted average of the valid readings
+        double num = 0.0;
+        double den = 0.0;
+        int confSum = 0;
+        for (int i = 0; i < 3; ++i) {
+            if (!std::isnan(t.r[i].inches) && t.r[i].confidence > 0) {
+                num += t.r[i].inches * t.r[i].confidence;
+                den += t.r[i].confidence;
+                confSum += t.r[i].confidence;
             }
+        }
+        if (den > 0.0) {
+            t.weightedAvgInches = num / den;
         } else {
-            robotPose = odometrySystem.getPose();
-            actualFront = to_in(from_mm(frontSensor.get_distance()));
-            actualRight = to_in(from_mm(rightSensor.get_distance()));
+            t.weightedAvgInches = std::numeric_limits<double>::quiet_NaN();
         }
-
-        double expectedFront = to_in(utils::calculateExpectedDistance(robotPose, frontSensorPos));
-        double expectedRight = to_in(utils::calculateExpectedDistance(robotPose, rightSensorPos));
-
-        std::cout << "\n--- Sample " << (i+1) << " ---\n";
-        std::cout << "Robot Pose: (" << to_in(robotPose.x) << ", " << to_in(robotPose.y) << ", " << to_cDeg(robotPose.orientation) << ")\n";
-        // Print back and left sensor actual and expected distances
-        double actualBack = to_in(from_mm(backSensor.get_distance()));
-        double actualLeft = to_in(from_mm(leftSensor.get_distance()));
-        double expectedBack = to_in(utils::calculateExpectedDistance(robotPose, backSensorPos));
-        double expectedLeft = to_in(utils::calculateExpectedDistance(robotPose, leftSensorPos));
-        std::cout << "Front Sensor: Actual=" << actualFront << " in, Expected=" << expectedFront << " in, Error=" << (actualFront-expectedFront) << " in\n";
-        std::cout << "Right Sensor: Actual=" << actualRight << " in, Expected=" << expectedRight << " in, Error=" << (actualRight-expectedRight) << " in\n";
-        std::cout << "Back Sensor: Actual=" << actualBack << " in, Expected=" << expectedBack << " in, Error=" << (actualBack-expectedBack) << " in\n";
-        std::cout << "Left Sensor: Actual=" << actualLeft << " in, Expected=" << expectedLeft << " in, Error=" << (actualLeft-expectedLeft) << " in\n";
-
-        // Print all sensor readings for debugging
-        int backConfidence = backSensor.get_confidence();
-        int leftConfidence = leftSensor.get_confidence();
-        int frontConfidence = frontSensor.get_confidence();
-        int rightConfidence = rightSensor.get_confidence();
-        int backSize = backSensor.get_object_size();
-        int leftSize = leftSensor.get_object_size();
-        int frontSize = frontSensor.get_object_size();
-        int rightSize = rightSensor.get_object_size();
-
-         // If any sensor confidence is zero, skip this sample and ask user to reposition
-         if (leftConfidence == 0 || backConfidence == 0) {
-             std::cout << "\n[SENSOR WARNING] One or more sensors have zero confidence. Please reposition the robot and try again.\n";
-             std::cout << "  Front:  Confidence=" << frontConfidence << ", Value=" << actualFront << "\n";
-             std::cout << "  Right:  Confidence=" << rightConfidence << ", Value=" << actualRight << "\n";
-             std::cout << "  Back:   Confidence=" << backConfidence << ", Value=" << actualBack << "\n";
-             std::cout << "  Left:   Confidence=" << leftConfidence << ", Value=" << actualLeft << "\n";
-             --i; // Decrement i to repeat this sample
-             continue;
-         }
-        std::cout << "All Sensor Readings:\n";
-        std::cout << "  Front:  " << actualFront << " in, Confidence=" << frontConfidence << ", Size=" << frontSize << "\n";
-        std::cout << "  Right:  " << actualRight << " in, Confidence=" << rightConfidence << ", Size=" << rightSize << "\n";
-        std::cout << "  Back:   " << actualBack << " in, Confidence=" << backConfidence << ", Size=" << backSize << "\n";
-        std::cout << "  Left:   " << actualLeft << " in, Confidence=" << leftConfidence << ", Size=" << leftSize << "\n";
-
-        samples.push_back({robotPose, actualFront, actualRight, actualBack, actualLeft, expectedFront, expectedRight});
-    }
-
-    std::cout << "\nCalibration samples collected.\n";
-
-    // === Direct Sensor Pose Estimation (front and right only) ===
-    Length fieldNorthWall = utils::halfHeight; // y = +halfHeight
-    Length fieldEastWall = utils::halfWidth; // x = +halfWidth
-    const double headingTolerance = 3.0; // degrees
-
-
-
-    // Store perpendicular and non-perpendicular samples for each sensor
-    struct SensorSample {
-        double perp; // perpendicular offset (y for front/back, x for right/left)
-        double dist; // measured distance
-        bool valid = false;
-        double angle = 0.0;
+        t.totalConfidence = confSum;
+        return t;
     };
-    SensorSample frontPerp, frontNonPerp, rightPerp, rightNonPerp, backPerp, backNonPerp, leftPerp, leftNonPerp;
 
-    for (const auto& s : samples) {
-        std::cout << "\nSample direct geometric estimates:" << std::endl;
-        double robotHeading = to_cDeg(s.robotPose.orientation);
-
-        // --- Front sensor: facing north wall ---
-        double frontRelAngle = to_cDeg(frontSensorPos.orientation);
-        double frontGlobalAngle = std::fmod(robotHeading + frontRelAngle, 360.0);
-        if (frontGlobalAngle < 0) frontGlobalAngle += 360.0;
-        double frontAngleDiff = std::fmod(std::abs(frontGlobalAngle - 0.0), 360.0);
-        if (frontAngleDiff > 180.0) frontAngleDiff = 360.0 - frontAngleDiff;
-        if (!frontPerp.valid && frontAngleDiff < headingTolerance) {
-            frontPerp.perp = to_in(fieldNorthWall - s.robotPose.y - from_in(s.actualFront));
-            frontPerp.dist = to_in(from_mm(frontSensor.get_distance()));
-            frontPerp.valid = true;
-            frontPerp.angle = frontGlobalAngle;
-            std::cout << "  [Front] Robot aligned with north wall. Sensor offsets (robot-relative):" << std::endl;
-            std::cout << "    x = 0 in" << std::endl;
-            std::cout << "    y = " << frontPerp.perp << " in" << std::endl;
-        } else if (!frontNonPerp.valid && frontAngleDiff >= headingTolerance) {
-            frontNonPerp.perp = to_in(fieldNorthWall - s.robotPose.y - from_in(s.actualFront));
-            frontNonPerp.dist = to_in(from_mm(frontSensor.get_distance()));
-            frontNonPerp.valid = true;
-            frontNonPerp.angle = frontGlobalAngle;
-            double sensorX = 0.0;
-            if (frontNonPerp.dist > std::abs(frontNonPerp.perp)) {
-                sensorX = sqrt(frontNonPerp.dist * frontNonPerp.dist - frontNonPerp.perp * frontNonPerp.perp);
-            }
-            std::cout << "  [Front] Non-perpendicular sample. Trig solution:" << std::endl;
-            std::cout << "    x = " << sensorX << " in" << std::endl;
-            std::cout << "    y = " << frontNonPerp.perp << " in" << std::endl;
-        }
-
-        // --- Right sensor: facing east wall ---
-        double rightRelAngle = to_cDeg(rightSensorPos.orientation);
-        double rightGlobalAngle = std::fmod(robotHeading + rightRelAngle, 360.0);
-        if (rightGlobalAngle < 0) rightGlobalAngle += 360.0;
-        double rightAngleDiff = std::fmod(std::abs(rightGlobalAngle - 90.0), 360.0);
-        if (rightAngleDiff > 180.0) rightAngleDiff = 360.0 - rightAngleDiff;
-        if (!rightPerp.valid && rightAngleDiff < headingTolerance) {
-            rightPerp.perp = to_in(fieldEastWall - s.robotPose.x - from_in(s.actualRight));
-            rightPerp.dist = to_in(from_mm(rightSensor.get_distance()));
-            rightPerp.valid = true;
-            rightPerp.angle = rightGlobalAngle;
-            std::cout << "  [Right] Robot aligned with east wall. Sensor offsets (robot-relative):" << std::endl;
-            std::cout << "    x = " << rightPerp.perp << " in" << std::endl;
-            std::cout << "    y = 0 in" << std::endl;
-        } else if (!rightNonPerp.valid && rightAngleDiff >= headingTolerance) {
-            rightNonPerp.perp = to_in(fieldEastWall - s.robotPose.x - from_in(s.actualRight));
-            rightNonPerp.dist = to_in(from_mm(rightSensor.get_distance()));
-            rightNonPerp.valid = true;
-            rightNonPerp.angle = rightGlobalAngle;
-            double sensorY = 0.0;
-            if (rightNonPerp.dist > std::abs(rightNonPerp.perp)) {
-                sensorY = sqrt(rightNonPerp.dist * rightNonPerp.dist - rightNonPerp.perp * rightNonPerp.perp);
-            }
-            std::cout << "  [Right] Non-perpendicular sample. Trig solution:" << std::endl;
-            std::cout << "    x = " << rightNonPerp.perp << " in" << std::endl;
-            std::cout << "    y = " << sensorY << " in" << std::endl;
-        }
-
-        // --- Back sensor: facing south wall ---
-        double backRelAngle = to_cDeg(backSensorPos.orientation);
-        double backGlobalAngle = std::fmod(robotHeading + backRelAngle, 360.0);
-        if (backGlobalAngle < 0) backGlobalAngle += 360.0;
-        double backAngleDiff = std::fmod(std::abs(backGlobalAngle - 180.0), 360.0);
-        if (backAngleDiff > 180.0) backAngleDiff = 360.0 - backAngleDiff;
-        if (!backPerp.valid && backAngleDiff < headingTolerance) {
-            backPerp.perp = to_in(-fieldNorthWall - s.robotPose.y + from_in(s.actualBack)); // South wall is -halfHeight
-            backPerp.dist = to_in(from_mm(backSensor.get_distance()));
-            backPerp.valid = true;
-            backPerp.angle = backGlobalAngle;
-            if (std::abs(backPerp.perp) > 24.0) {
-                std::cout << "  [Back] WARNING: Impossible sensor offset (y = " << backPerp.perp << "). Check alignment and measurement." << std::endl;
-            }
-            std::cout << "  [Back] Robot aligned with south wall. Sensor offsets (robot-relative):" << std::endl;
-            std::cout << "    x = 0 in" << std::endl;
-            std::cout << "    y = " << backPerp.perp << " in" << std::endl;
-        } else if (!backNonPerp.valid && backAngleDiff >= headingTolerance) {
-            backNonPerp.perp = to_in(-fieldNorthWall - s.robotPose.y + from_in(s.actualBack));
-            backNonPerp.dist = to_in(from_mm(backSensor.get_distance()));
-            backNonPerp.valid = true;
-            backNonPerp.angle = backGlobalAngle;
-            double sensorX = 0.0;
-            if (backNonPerp.dist > std::abs(backNonPerp.perp)) {
-                sensorX = sqrt(backNonPerp.dist * backNonPerp.dist - backNonPerp.perp * backNonPerp.perp);
-            }
-            if (std::abs(backNonPerp.perp) > 24.0) {
-                std::cout << "  [Back] WARNING: Impossible sensor offset (y = " << backNonPerp.perp << "). Check alignment and measurement." << std::endl;
-            }
-            std::cout << "  [Back] Non-perpendicular sample. Trig solution:" << std::endl;
-            std::cout << "    x = " << sensorX << " in" << std::endl;
-            std::cout << "    y = " << backNonPerp.perp << " in" << std::endl;
-        }
-
-        // --- Left sensor: facing west wall ---
-        double leftRelAngle = to_cDeg(leftSensorPos.orientation);
-        double leftGlobalAngle = std::fmod(robotHeading + leftRelAngle, 360.0);
-        if (leftGlobalAngle < 0) leftGlobalAngle += 360.0;
-        double leftAngleDiff = std::fmod(std::abs(leftGlobalAngle - 270.0), 360.0);
-        if (leftAngleDiff > 180.0) leftAngleDiff = 360.0 - leftAngleDiff;
-        if (!leftPerp.valid && leftAngleDiff < headingTolerance) {
-            leftPerp.perp = to_in(-fieldEastWall - s.robotPose.x + from_in(s.actualLeft)); // West wall is -halfWidth
-            leftPerp.dist = to_in(from_mm(leftSensor.get_distance()));
-            leftPerp.valid = true;
-            leftPerp.angle = leftGlobalAngle;
-            if (std::abs(leftPerp.perp) > 24.0) {
-                std::cout << "  [Left] WARNING: Impossible sensor offset (x = " << leftPerp.perp << "). Check alignment and measurement." << std::endl;
-            }
-            std::cout << "  [Left] Robot aligned with west wall. Sensor offsets (robot-relative):" << std::endl;
-            std::cout << "    x = " << leftPerp.perp << " in" << std::endl;
-            std::cout << "    y = 0 in" << std::endl;
-        } else if (!leftNonPerp.valid && leftAngleDiff >= headingTolerance) {
-            leftNonPerp.perp = to_in(-fieldEastWall - s.robotPose.x + from_in(s.actualLeft));
-            leftNonPerp.dist = to_in(from_mm(leftSensor.get_distance()));
-            leftNonPerp.valid = true;
-            leftNonPerp.angle = leftGlobalAngle;
-            double sensorY = 0.0;
-            if (leftNonPerp.dist > std::abs(leftNonPerp.perp)) {
-                sensorY = sqrt(leftNonPerp.dist * leftNonPerp.dist - leftNonPerp.perp * leftNonPerp.perp);
-            }
-            if (std::abs(leftNonPerp.perp) > 24.0) {
-                std::cout << "  [Left] WARNING: Impossible sensor offset (x = " << leftNonPerp.perp << "). Check alignment and measurement." << std::endl;
-            }
-            std::cout << "  [Left] Non-perpendicular sample. Trig solution:" << std::endl;
-            std::cout << "    x = " << leftNonPerp.perp << " in" << std::endl;
-            std::cout << "    y = " << sensorY << " in" << std::endl;
-        }
-    }
-
-    std::cout << "\nIf you align the robot and sensor to face a wall, the above values give you the sensor's position directly.\n";
-    std::cout << "Otherwise, use the average error method for more general cases.\n";
-
-    // === Least squares fit for sensor pose (robot-relative, inches) ===
-    auto clampInches = [](double value) {
-        return std::max(-9.0, std::min(9.0, value));
+    auto takePoseSample = [&]() -> PoseSample {
+        PoseSample s{};
+        s.odomPose = odometrySystem.getPose();
+        std::cout << "Robot pose: (" << to_in(s.odomPose.x) << ", " << to_in(s.odomPose.y) << ", " << to_cDeg(s.odomPose.orientation) << "°)" << std::endl;
+        
+        // Reordered: Start with LEFT sensor first to test timing theory
+        s.left  = takeSensorTriple(leftSensor,  "LEFT",  s.odomPose, leftSensorPos);
+        s.back  = takeSensorTriple(backSensor,  "BACK",  s.odomPose, backSensorPos);
+        s.right = takeSensorTriple(rightSensor, "RIGHT", s.odomPose, rightSensorPos);
+        s.front = takeSensorTriple(frontSensor, "FRONT", s.odomPose, frontSensorPos);
+        return s;
     };
-    // For each sensor, fit y (front) and x (right) using all samples
-    double sumFrontY = 0.0, sumRightX = 0.0;
-    for (const auto& s : samples) {
-        Length frontY = fieldNorthWall - s.robotPose.y - from_in(s.actualFront);
-        Length rightX = fieldEastWall - s.robotPose.x - from_in(s.actualRight);
-        sumFrontY += to_in(frontY);
-        sumRightX += to_in(rightX);
-    }
-    // Output direct geometric/trig solution for all sensors, clamped to [-9, 9] inches
-    std::cout << "\n--- Suggested Sensor Relative Poses (robot-relative, inches, direct geometric solution) ---\n";
-auto clamp = [](double v) { return std::max(-10.0, std::min(10.0, v)); };
-    // Front
-    std::cout << "  Front sensor pose: (x = ";
-    if (frontPerp.valid && frontNonPerp.valid) {
-        double sensorX = 0.0;
-        if (frontNonPerp.dist > std::abs(frontNonPerp.perp)) {
-            sensorX = sqrt(frontNonPerp.dist * frontNonPerp.dist - frontNonPerp.perp * frontNonPerp.perp);
-        }
-        std::cout << clamp(sensorX);
-    } else {
-        std::cout << "?";
-    }
-    std::cout << ", y = ";
-    if (frontPerp.valid) std::cout << clamp(frontPerp.perp); else std::cout << "?";
-    std::cout << ", orientation = " << to_cDeg(frontSensorPos.orientation) << ")\n";
 
-    // Right
-    std::cout << "  Right sensor pose: (x = ";
-    if (rightPerp.valid) std::cout << clamp(rightPerp.perp); else std::cout << "?";
-    std::cout << ", y = ";
-    if (rightPerp.valid && rightNonPerp.valid) {
-        double sensorY = 0.0;
-        if (rightNonPerp.dist > std::abs(rightNonPerp.perp)) {
-            sensorY = sqrt(rightNonPerp.dist * rightNonPerp.dist - rightNonPerp.perp * rightNonPerp.perp);
-        }
-        std::cout << clamp(sensorY);
-    } else {
-        std::cout << "?";
-    }
-    std::cout << ", orientation = " << to_cDeg(rightSensorPos.orientation) << ")\n";
+    std::vector<PoseSample> samples;
+    samples.reserve(19);
 
-    // Back
-    std::cout << "  Back sensor pose: (x = ";
-    if (backPerp.valid && backNonPerp.valid) {
-        double sensorX = 0.0;
-        if (backNonPerp.dist > std::abs(backNonPerp.perp)) {
-            sensorX = sqrt(backNonPerp.dist * backNonPerp.dist - backNonPerp.perp * backNonPerp.perp);
-        }
-        std::cout << clamp(sensorX);
-    } else {
-        std::cout << "?";
-    }
-    std::cout << ", y = ";
-    if (backPerp.valid) std::cout << clamp(backPerp.perp); else std::cout << "?";
-    std::cout << ", orientation = " << to_cDeg(backSensorPos.orientation) << ")\n";
+    // Take initial sample at 0°
+    std::cout << "\n[Step 1/19] Sampling sensors..." << std::endl;
+    PoseSample s = takePoseSample();
+    samples.push_back(s);
 
-    // Left
-    std::cout << "  Left sensor pose: (x = ";
-    if (leftPerp.valid) std::cout << clamp(leftPerp.perp); else std::cout << "?";
-    std::cout << ", y = ";
-    if (leftPerp.valid && leftNonPerp.valid) {
-        double sensorY = 0.0;
-        if (leftNonPerp.dist > std::abs(leftNonPerp.perp)) {
-            sensorY = sqrt(leftNonPerp.dist * leftNonPerp.dist - leftNonPerp.perp * leftNonPerp.perp);
-        }
-        std::cout << clamp(sensorY);
-    } else {
-        std::cout << "?";
+    // 2) Loop 18 times to cover full 360° (after 18 × 20° turns)
+    for (int i = 0; i < 18; ++i) {
+        // Brief delay before turning (no need for full second anymore)
+        pros::delay(100);
+
+        // Turn +20° using the PID controller and wait until the turn settles
+        std::cout << "Turning +20 degrees..." << std::endl;
+        pidDriveController.turnAngle(20_stDeg, 6.0, 3_sec, true);
+        pros::delay(500);
+
+        // Additional settling time after turn to ensure robot is completely stable
+        // This helps prevent vibration/oscillation from affecting sensor readings
+        std::cout << "Allowing robot to settle..." << std::endl;
+        pros::delay(500);
+
+        std::cout << "\n[Step " << (i + 2) << "/19] Sampling sensors..." << std::endl;
+        PoseSample s = takePoseSample();
+        samples.push_back(s);
     }
-    std::cout << ", orientation = " << to_cDeg(leftSensorPos.orientation) << ")\n";
+
+    std::cout << "\nData collection complete. Samples collected: " << samples.size() << "\n";
+
+    // 3) Tuning step: keep each sensor's orientation the same, but search for the
+    //    x/y (within ±1 inch of the current guess) that best matches all readings.
+    struct BestFitResult { double bestX; double bestY; double bestError; int used; };
+
+    auto fitSensor = [&](const std::string& name,
+                         const units::Pose& currentPose,
+                         auto selector) -> BestFitResult {
+        // selector gets the appropriate SensorTriple from a PoseSample
+        // Grid search over x and y in ±1.0 in around current guess, step 0.1 in
+        double x0 = to_in(currentPose.x);
+        double y0 = to_in(currentPose.y);
+        double bestErr = std::numeric_limits<double>::infinity();
+        double bestX = x0, bestY = y0;
+        int usedCount = 0; // how many samples actually contributed
+
+        auto evalError = [&](double xGuessIn, double yGuessIn) -> double {
+            double sse = 0.0; // sum of squared errors (weighted)
+            int used = 0;
+            units::Pose guess(from_in(xGuessIn), from_in(yGuessIn), currentPose.orientation);
+            for (const auto& s : samples) {
+                const SensorTriple& T = selector(s);
+                // Use weighted average distance from this pose
+                if (std::isnan(T.weightedAvgInches) || T.totalConfidence <= 0) continue;
+                Length expected = utils::calculateExpectedDistance(s.odomPose, guess);
+                double expectedIn = to_in(expected);
+                double error = T.weightedAvgInches - expectedIn;
+                // Weight by confidence (normalize to ~0..1, adjusted for 7 readings)
+                double w = std::min(1.0, std::max(0.0, T.totalConfidence / 63.0 / 7.0));
+                sse += w * error * error;
+                ++used;
+            }
+            if (used == 0) return std::numeric_limits<double>::infinity();
+            return sse / used; // mean squared error
+        };
+
+        for (double dx = -1.0; dx <= 1.0001; dx += 0.1) {
+            for (double dy = -1.0; dy <= 1.0001; dy += 0.1) {
+                double err = evalError(x0 + dx, y0 + dy);
+                if (err < bestErr) {
+                    bestErr = err;
+                    bestX = x0 + dx;
+                    bestY = y0 + dy;
+                }
+            }
+        }
+
+        // Count how many samples would be used at the best pose (for reporting)
+        {
+            units::Pose bestPose(from_in(bestX), from_in(bestY), currentPose.orientation);
+            int used = 0;
+            for (const auto& s : samples) {
+                const SensorTriple& T = selector(s);
+                if (!std::isnan(T.weightedAvgInches) && T.totalConfidence > 0) ++used;
+            }
+            usedCount = used;
+        }
+
+        return {bestX, bestY, bestErr, usedCount};
+    };
+
+    // Run fitting for each sensor
+    auto frontFit = fitSensor("Front", frontSensorPos, [](const PoseSample& s) -> const SensorTriple& { return s.front; });
+    auto rightFit = fitSensor("Right", rightSensorPos, [](const PoseSample& s) -> const SensorTriple& { return s.right; });
+    auto backFit  = fitSensor("Back",  backSensorPos,  [](const PoseSample& s) -> const SensorTriple& { return s.back;  });
+    auto leftFit  = fitSensor("Left",  leftSensorPos,  [](const PoseSample& s) -> const SensorTriple& { return s.left;  });
+
+    // Print suggested updates and then apply them
+    auto reportAndApply = [&](const std::string& name, units::Pose& pose, const BestFitResult& r) {
+        std::cout << "\n=== " << name << " Sensor Fit ===\n";
+        std::cout << "Used samples: " << r.used << ", mean squared error: " << r.bestError << " (inches^2)\n";
+        std::cout << "Old pose: (x = " << to_in(pose.x) << ", y = " << to_in(pose.y)
+                  << ", orientation = " << to_cDeg(pose.orientation) << ")\n";
+        std::cout << "New pose: (x = " << r.bestX << ", y = " << r.bestY
+                  << ", orientation = " << to_cDeg(pose.orientation) << ")\n";
+        // Apply the tuned x/y while keeping the original orientation
+        pose.x = from_in(r.bestX);
+        pose.y = from_in(r.bestY);
+    };
+
+    reportAndApply("Front", frontSensorPos, frontFit);
+    reportAndApply("Right", rightSensorPos, rightFit);
+    reportAndApply("Back",  backSensorPos,  backFit);
+    reportAndApply("Left",  leftSensorPos,  leftFit);
+
+    std::cout << "\nTuning complete. The sensor positions above are now updated in memory.\n";
+    std::cout << "You can copy these numbers into main.cpp to make them permanent.\n";
 }
 
 void runParticleFilterTest() {    
@@ -527,187 +509,3 @@ void runParticleFilterTest() {
     std::cout << "Front Sensor Distance: " << frontDist << "\n";
     */
 }
-
-// Debug function to test left sensor connectivity and readings
-void debugLeftSensorConnectivity() {
-    std::cout << "\n=== LEFT SENSOR CONNECTIVITY DEBUG ===\n";
-    std::cout << "Testing left sensor on port 6...\n\n";
-    
-    for (int i = 0; i < 10; ++i) {
-        int rawDistance = leftSensor.get_distance();
-        int confidence = leftSensor.get_confidence();
-        int objectSize = leftSensor.get_object_size();
-        double distanceInches = to_in(from_mm(rawDistance));
-        
-        std::cout << "Reading " << (i+1) << ": ";
-        std::cout << rawDistance << "mm (" << distanceInches << "\"), ";
-        std::cout << "confidence=" << confidence << "/63, ";
-        std::cout << "size=" << objectSize << std::endl;
-        
-        if (rawDistance == 9999) {
-            std::cout << "  → ERROR: 9999mm indicates no valid reading (sensor error)" << std::endl;
-        } else if (confidence == 0) {
-            std::cout << "  → WARNING: Zero confidence - sensor may not be detecting anything" << std::endl;
-        } else if (confidence < 20) {
-            std::cout << "  → CAUTION: Low confidence reading" << std::endl;
-        } else {
-            std::cout << "  → OK: Good reading with solid confidence" << std::endl;
-        }
-        
-        pros::delay(500);  // Wait 0.5 seconds between readings
-    }
-    
-    std::cout << "\nDIAGNOSTIC SUGGESTIONS:\n";
-    std::cout << "- If all readings are 9999mm: Check physical connection to port 6\n";
-    std::cout << "- If confidence is always 0: Sensor may be blocked or facing wrong direction\n";
-    std::cout << "- If readings vary normally: Sensor is working correctly\n";
-    std::cout << "=========================================\n";
-}
-
-// Debug function specifically for back sensor coordinate transformation
-void debugBackSensorTransformation() {
-    std::cout << "\n=== BACK SENSOR COORDINATE DEBUG ===\n";
-    
-    // Test robot at (48, 48, 0°) - should be ~24" from south wall
-    units::Pose testPose(48_in, 48_in, 0_cDeg);
-    
-    std::cout << "Robot pose: (" << to_in(testPose.x) << ", " << to_in(testPose.y) 
-              << ", " << to_cDeg(testPose.orientation) << "°)\n";
-    std::cout << "Back sensor relative position: (" << to_in(backSensorPos.x) 
-              << ", " << to_in(backSensorPos.y) << ", " << to_cDeg(backSensorPos.orientation) << "°)\n";
-    
-    // Calculate global sensor position
-    units::Pose globalSensorPose = utils::sensorPoseToGlobal(testPose, backSensorPos);
-    std::cout << "Back sensor global position: (" << to_in(globalSensorPose.x) 
-              << ", " << to_in(globalSensorPose.y) << ", " << to_cDeg(globalSensorPose.orientation) << "°)\n";
-    
-    // Calculate expected distance using our function
-    Length expectedDistance = utils::calculateExpectedDistance(testPose, backSensorPos);
-    std::cout << "Expected distance to wall: " << to_in(expectedDistance) << " in\n";
-    
-    // Manual calculation for verification
-    // Back sensor should be at (48+6.0, 48-7.64) = (54.0, 40.36) facing 180° (South)
-    // Distance to south wall at y=-72 should be: 40.36 - (-72) = 112.36"
-    double manualGlobalX = to_in(testPose.x) + to_in(backSensorPos.x);
-    double manualGlobalY = to_in(testPose.y) + to_in(backSensorPos.y); 
-    double manualDistanceToSouthWall = manualGlobalY - (-72.0);  // South wall at -72"
-    
-    std::cout << "Manual calculation verification:\n";
-    std::cout << "  Sensor global position: (" << manualGlobalX << ", " << manualGlobalY << ")\n";
-    std::cout << "  Distance to south wall (-72\"): " << manualDistanceToSouthWall << " in\n";
-    
-    // Get actual sensor reading for comparison
-    double actualReading = to_in(from_mm(backSensor.get_distance()));
-    int confidence = backSensor.get_confidence();
-    std::cout << "Actual sensor reading: " << actualReading << " in (confidence: " << confidence << "/63)\n";
-    
-    std::cout << "ERROR ANALYSIS:\n";
-    std::cout << "  Expected: " << to_in(expectedDistance) << " in\n";
-    std::cout << "  Actual: " << actualReading << " in\n";
-    std::cout << "  Difference: " << (to_in(expectedDistance) - actualReading) << " in\n";
-    std::cout << "=====================================\n";
-}
-
-// Helper function to solve for missing sensor coordinate (e.g., front.x, right.y, etc.)
-double solveSensorOffset(
-    double robotX,
-    double robotY,
-    double robotOrientationDeg,
-    double knownSensorY,
-    double sensorOrientationDeg,
-    double measuredDistance,
-    double wallY
-) {
-    // Convert degrees to radians
-    double theta = robotOrientationDeg * M_PI / 180.0;
-    // For most cases, sensor orientation matches robot orientation
-    double sinTheta = sin(theta);
-    double cosTheta = cos(theta);
-    // The global Y position of the sensor
-    // globalY = robotY + sensorX * sin(theta) + knownSensorY * cos(theta)
-    // measuredDistance = wallY - globalY
-    // Rearranged:
-    // globalY = wallY - measuredDistance
-    // robotY + sensorX * sin(theta) + knownSensorY * cos(theta) = wallY - measuredDistance
-    // sensorX = (wallY - measuredDistance - robotY - knownSensorY * cosTheta) / sinTheta
-    if (fabs(sinTheta) < 1e-6) {
-        std::cout << "Cannot solve for sensorX: sin(theta) is zero (robot facing wall directly)" << std::endl;
-        return 0.0;
-    }
-    return (wallY - measuredDistance - robotY - knownSensorY * cosTheta) / sinTheta;
-}
-
-// Example usage inside calibrateParticleFilterDistanceSensorPoses:
-// After collecting a sample, you can call:
-// double solvedFrontX = solveSensorOffset(
-//     to_in(robotPose.x),
-//     to_in(robotPose.y),
-//     to_cDeg(robotPose.orientation),
-//     to_in(frontSensorPos.y),
-//     to_cDeg(frontSensorPos.orientation),
-//     actualFront,
-//     to_in(utils::halfHeight)
-// );
-// std::cout << "Solved front.x: " << solvedFrontX << " in" << std::endl;
-
-// Simple sensor verification function
-void calibrateLeftYAndBackXAtRotatedHeading() {
-    std::cout << "\n=== Simple Sensor Position Verification ===\n";
-    std::cout << "Current sensor positions in main.cpp:\n";
-    std::cout << "  Back:  (0, -7.64, 180°) - sensor 7.64\" behind robot center\n";
-    std::cout << "  Left:  (-6.0, 0, 270°) - sensor 6.0\" left of robot center\n";
-    std::cout << "  Right: (7.15, 0, 90°) - sensor 7.15\" right of robot center\n";
-    std::cout << "  Front: (0, 9.16, 0°) - sensor 9.16\" in front of robot center\n\n";
-    
-    std::cout << "This function will test if your current sensor positions are accurate.\n";
-    std::cout << "Place robot at (48, 48) and press Enter to start verification...\n";
-    
-    std::string line;
-    std::getline(std::cin, line);
-
-    // Reset pose and start odometry
-    units::Pose testPose(48_in, 48_in, 0_cDeg);
-    odometrySystem.resetPose(testPose);
-    odometrySystem.start();
-    
-    std::cout << "Robot reset to (48, 48, 0°)\n";
-    std::cout << "Take 3 samples by rotating to different headings.\n\n";
-
-    for (int i = 0; i < 3; ++i) {
-        std::cout << "=== Sample " << (i+1) << " ===\n";
-        std::cout << "Rotate robot and press Enter...";
-        std::getline(std::cin, line);
-
-        // Get current readings
-        units::Pose robotPose = odometrySystem.getPose();
-        double actualLeft = to_in(from_mm(leftSensor.get_distance()));
-        double actualBack = to_in(from_mm(backSensor.get_distance()));
-        int leftConf = leftSensor.get_confidence();
-        int backConf = backSensor.get_confidence();
-
-        // Calculate expected distances with current sensor positions
-        double expectedLeft = to_in(utils::calculateExpectedDistance(robotPose, leftSensorPos));
-        double expectedBack = to_in(utils::calculateExpectedDistance(robotPose, backSensorPos));
-        
-        std::cout << "Robot: (" << to_in(robotPose.x) << ", " << to_in(robotPose.y) 
-                  << ", " << to_cDeg(robotPose.orientation) << "°)\n";
-        std::cout << "Left:  actual=" << actualLeft << "\" expected=" << expectedLeft 
-                  << "\" error=" << std::abs(actualLeft - expectedLeft) << "\" conf=" << leftConf << "\n";
-        std::cout << "Back:  actual=" << actualBack << "\" expected=" << expectedBack 
-                  << "\" error=" << std::abs(actualBack - expectedBack) << "\" conf=" << backConf << "\n";
-                  
-        // Simple assessment
-        double leftError = std::abs(actualLeft - expectedLeft);
-        double backError = std::abs(actualBack - expectedBack);
-        if (leftError < 2.0) std::cout << "Left sensor position looks good!\n";
-        else std::cout << "Left sensor position might need adjustment.\n";
-        if (backError < 2.0) std::cout << "Back sensor position looks good!\n";
-        else std::cout << "Back sensor position might need adjustment.\n";
-        std::cout << std::endl;
-    }
-
-    odometrySystem.stop();
-    std::cout << "Verification complete. If errors are consistently > 2\", consider measuring\n";
-    std::cout << "your sensor positions more precisely and updating main.cpp.\n";
-}
-

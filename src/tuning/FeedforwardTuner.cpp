@@ -49,11 +49,31 @@ Number FeedforwardTuner::tuneKs() {
     bool characterizingComplete = false;
     
     std::cout << "Starting kS calibration" << std::endl;
+    std::cout << "SAFETY: Max voltage limited to 3.0V, timeout after 15 seconds" << std::endl;
+    
+    // Safety limits
+    const double MAX_VOLTAGE = 3.0;  // Limit voltage to prevent robot from going too fast
+    const int MAX_STEPS = 150;       // 150 * 0.02V = 3.0V max
+    const uint32_t TIMEOUT_MS = 15000; // 15 second timeout
+    uint32_t startTime = pros::millis();
     
     // Test loop
-    while (!characterizingComplete) {
+    while (!characterizingComplete && characterizationStep < MAX_STEPS) {
+        // Safety timeout check
+        if (pros::millis() - startTime > TIMEOUT_MS) {
+            std::cout << "SAFETY: Timeout reached, stopping calibration" << std::endl;
+            break;
+        }
+        
         // Slowly increase voltage until movement is detected
-        double voltage = characterizationStep * 0.1;       // Increase by 50mV each step
+        double voltage = characterizationStep * 0.02;      // Increase by 20mV each step (was 100mV)
+        
+        // Safety limit
+        if (voltage > MAX_VOLTAGE) {
+            std::cout << "SAFETY: Max voltage reached without detecting movement" << std::endl;
+            break;
+        }
+        
         int voltageInt = static_cast<int>(voltage * 1000); // Display in mV
         
         // Convert voltage to percentage (assuming 12V max)
@@ -79,7 +99,7 @@ Number FeedforwardTuner::tuneKs() {
         // If we detect movement, we've found kS
         if (avgVel > 0.5) { // Consider movement detected when velocity > 0.5 in/s
             kS = voltage * 0.9; // Slightly reduce the estimate to be conservative
-            std::cout << "kS: " << kS << " V" << std::endl;
+            std::cout << "Movement detected! kS: " << kS << " V" << std::endl;
             
             leftMotors.move(0);
             rightMotors.move(0);
@@ -91,9 +111,19 @@ Number FeedforwardTuner::tuneKs() {
         pros::delay(20);
     }
     
+    // Ensure motors are stopped
+    leftMotors.move(0);
+    rightMotors.move(0);
+    
     // Display final result
-    std::cout << "kS Calibration completed" << std::endl;
-    std::cout << "kS: " << kS << " V" << std::endl;
+    if (kS > 0) {
+        std::cout << "kS Calibration completed successfully" << std::endl;
+        std::cout << "kS: " << kS << " V" << std::endl;
+    } else {
+        std::cout << "kS Calibration failed - no movement detected within safety limits" << std::endl;
+        kS = 0.5; // Default fallback value
+        std::cout << "Using fallback kS: " << kS << " V" << std::endl;
+    }
     
     return kS;
 }
@@ -110,15 +140,34 @@ Number FeedforwardTuner::tuneKv(Number kS) {
     
     std::cout << "Starting kV calibration" << std::endl;
     std::cout << "kS: " << kS << " V" << std::endl;
+    std::cout << "SAFETY: Max voltage limited to 6.0V, 1.5s per test" << std::endl;
     
-    // Test different voltage levels to find voltage-velocity relationship
-    const std::vector<double> testVoltages = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+    // Safety-limited test voltages (reduced from original)
+    const std::vector<double> testVoltages = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+    const double MAX_APPLIED_VOLTAGE = 8.0; // Maximum total voltage including kS compensation
+    const uint32_t TEST_DURATION_MS = 1500;  // Reduced from 2000ms to 1500ms
+    const uint32_t TIMEOUT_MS = 30000;      // 30 second total timeout
+    
+    uint32_t startTime = pros::millis();
     
     for (double voltage : testVoltages) {
         if (characterizingComplete) break;
         
+        // Safety timeout check
+        if (pros::millis() - startTime > TIMEOUT_MS) {
+            std::cout << "SAFETY: Total timeout reached, stopping calibration" << std::endl;
+            break;
+        }
+        
         // Apply voltage (compensating for static friction)
         double appliedVoltage = voltage + kS;
+        
+        // Safety limit on applied voltage
+        if (appliedVoltage > MAX_APPLIED_VOLTAGE) {
+            std::cout << "SAFETY: Skipping " << voltage << "V test - would exceed max voltage limit" << std::endl;
+            continue;
+        }
+        
         if (appliedVoltage > 12.0) appliedVoltage = 12.0;  // Cap at max voltage
         
         // Convert voltage to percentage (assuming 12V max)
@@ -126,9 +175,9 @@ Number FeedforwardTuner::tuneKv(Number kS) {
         leftMotors.move(percentOutput);
         rightMotors.move(percentOutput);
         
-        // Wait for steady state velocity
-        std::cout << "Testing: " << voltage << " V" << std::endl;
-        pros::delay(1000);  // Allow motors to reach steady state
+        // Wait for steady state velocity (reduced duration for safety)
+        std::cout << "Testing: " << voltage << " V (applied: " << appliedVoltage << " V)" << std::endl;
+        pros::delay(TEST_DURATION_MS);  // Allow motors to reach steady state
         
         // Sample velocity multiple times and average
         double avgVelocity = 0.0;
@@ -143,6 +192,14 @@ Number FeedforwardTuner::tuneKv(Number kS) {
         
         avgVelocity /= samples;
         
+        // Safety check - if robot is going too fast, stop the test
+        if (avgVelocity > 60.0) {  // 60 in/s = 5 ft/s is plenty fast enough
+            std::cout << "SAFETY: Robot moving too fast (" << avgVelocity << " in/s), stopping test" << std::endl;
+            leftMotors.move(0);
+            rightMotors.move(0);
+            break;
+        }
+        
         // Record data point
         velocityData.push_back({voltage, avgVelocity});
         
@@ -152,9 +209,14 @@ Number FeedforwardTuner::tuneKv(Number kS) {
         }
         
         std::cout << "V: " << voltage << " V, Vel: " << avgVelocity << " in/s" << std::endl;
+        
+        // Stop motors before next test
+        leftMotors.move(0);
+        rightMotors.move(0);
+        pros::delay(500);  // Brief pause between tests
     }
     
-    // Stop motors
+    // Ensure motors are stopped
     leftMotors.move(0);
     rightMotors.move(0);
     
@@ -166,14 +228,21 @@ Number FeedforwardTuner::tuneKv(Number kS) {
         yValues.push_back(pair.second);
     }
     
-    kV = utils::calculateLinearRegressionSlope(xValues, yValues);
-    
-    if (kV > 0) {
-        std::cout << "kV Calibration completed" << std::endl;
-        std::cout << "kV: " << kV << " V·s/in" << std::endl;
+    if (xValues.size() >= 3) {  // Need at least 3 points for reasonable regression
+        kV = utils::calculateLinearRegressionSlope(xValues, yValues);
+        
+        if (kV > 0) {
+            std::cout << "kV Calibration completed successfully" << std::endl;
+            std::cout << "kV: " << kV << " V·s/in" << std::endl;
+        } else {
+            std::cout << "kV Calibration failed - invalid slope calculated" << std::endl;
+            kV = 0.01; // Default fallback value
+            std::cout << "Using fallback kV: " << kV << " V·s/in" << std::endl;
+        }
     } else {
-        std::cout << "kV Calibration Failed" << std::endl;
-        std::cout << "Not enough data points" << std::endl;
+        std::cout << "kV Calibration failed - not enough data points" << std::endl;
+        kV = 0.01; // Default fallback value
+        std::cout << "Using fallback kV: " << kV << " V·s/in" << std::endl;
     }
     
     return kV;

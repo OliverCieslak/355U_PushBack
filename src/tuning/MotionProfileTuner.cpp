@@ -131,6 +131,7 @@ void saveFeedForwardCalibrationValues() {
 
 /**
  * Dedicated routine for tuning the kS parameter (static friction)
+ * Enhanced with safety limits and better error handling
  */
 void tuneKs() {  
   // Create the feedforward tuner
@@ -146,29 +147,42 @@ void tuneKs() {
   feedforwardTuner.addVelocityDataCallback(
     [](double voltage, double velocity) {
       characterizationView.addVelocityDataPoint(voltage, velocity);
+      // Show safety status
+      if (voltage >= 2.8) {
+        characterizationView.showStatusMessage("Safety", "WARNING: Approaching 3.0V limit");
+      }
     }
   );
   
   characterizationView.showKsTest();
+  characterizationView.showStatusMessage("Safety", "Max voltage: 3.0V | Timeout: 15s");
   
-  // Run the kS tuning routine
-  kS = feedforwardTuner.tuneKs();
+  try {
+    // Run the kS tuning routine with safety features
+    kS = feedforwardTuner.tuneKs();
+    
+    // Update characterization view with the result
+    characterizationView.updateKs(kS);
+    characterizationView.showStatusMessage("kS Measured", ("Value: " + std::to_string(kS)).c_str());
+    
+    // Display final result
+    printf("kS Calibration (Safe)\n");
+    printf("kS: %.4f V\n", kS);
+    
+    // Save calibration value to SD card
+    saveFeedForwardCalibrationValues();
+    
+  } catch (const std::exception& e) {
+    characterizationView.showStatusMessage("Error", e.what());
+    printf("kS tuning failed: %s\n", e.what());
+  }
   
-  // Update characterization view with the result
-  characterizationView.updateKs(kS);
-  characterizationView.showStatusMessage("kS Measured", ("Value: " + std::to_string(kS)).c_str());
-  
-  // Display final result
-  printf("kS Calibration\n");
-  printf("kS: %.4f V\n", kS);
   characterizationView.showKsTest();
-  
-  // Save calibration value to SD card
-  saveFeedForwardCalibrationValues();
 }
 
 /**
  * Dedicated routine for tuning the kV parameter (velocity constant)
+ * Enhanced with safety limits and speed monitoring
  */
 void tuneKv() {
   // Create the feedforward tuner
@@ -184,23 +198,41 @@ void tuneKv() {
   feedforwardTuner.addVelocityDataCallback(
     [](double voltage, double velocity) {
       characterizationView.addVelocityDataPoint(voltage, velocity);
+      // Show safety status
+      if (voltage >= 7.5) {
+        characterizationView.showStatusMessage("Safety", "WARNING: Approaching 8.0V limit");
+      }
+      if (velocity >= 55.0) {
+        characterizationView.showStatusMessage("Safety", "WARNING: Approaching 60 in/s limit");
+      }
     }
   );
   
   characterizationView.showKvTest();
+  characterizationView.showStatusMessage("Safety", "Max voltage: 8.0V | Max speed: 60 in/s | Timeout: 30s");
   
-  // Run the kV tuning routine
-  kV = feedforwardTuner.tuneKv(kS);
+  try {
+    // Run the kV tuning routine with safety features
+    kV = feedforwardTuner.tuneKv(kS);
+      
+    // Update characterization view with the result
+    characterizationView.updateKv(kV);
+    characterizationView.showStatusMessage("kV Measured", ("Value: " + std::to_string(kV)).c_str());
     
-  // Update characterization view with the result
-  characterizationView.updateKv(kV);
-  characterizationView.showStatusMessage("kV Measured", ("Value: " + std::to_string(kV)).c_str());
-  
-  // Display for a few seconds
-  pros::delay(3000);
-  
-  // Save calibration values to SD card
-  saveFeedForwardCalibrationValues();
+    // Display final result
+    printf("kV Calibration (Safe)\n");
+    printf("kV: %.4f V/(in/s)\n", kV);
+    
+    // Display for a few seconds
+    pros::delay(3000);
+    
+    // Save calibration values to SD card
+    saveFeedForwardCalibrationValues();
+    
+  } catch (const std::exception& e) {
+    characterizationView.showStatusMessage("Error", e.what());
+    printf("kV tuning failed: %s\n", e.what());
+  }
 }
 
 /**

@@ -18,8 +18,11 @@ namespace utils {
 // All angles must use compass heading (0° = North, 90° = East, 180° = South, 270° = West).
 // Returns the expected distance from the sensor to the nearest field wall.
 Length calculateExpectedDistance(const units::Pose& robotPose, const units::Pose& sensorOffset) {
-    // Use sensorPoseToGlobal for transformation
-    units::Pose globalSensorPose = sensorPoseToGlobal(robotPose, sensorOffset);
+    // Convert orientations from compass to standard degrees for all math
+    units::Pose robotPoseStd(robotPose.x, robotPose.y, from_stDeg(to_stDeg(robotPose.orientation)));
+    units::Pose sensorOffsetStd(sensorOffset.x, sensorOffset.y, from_stDeg(to_stDeg(sensorOffset.orientation)));
+    // Use sensorPoseToGlobal for transformation (now in standard degrees)
+    units::Pose globalSensorPose = sensorPoseToGlobal(robotPoseStd, sensorOffsetStd);
 
     // Pre-calculate trig values for sensor orientation (trig angle)
     double cosAngle = fastCos(to_stRad(globalSensorPose.orientation));

@@ -18,6 +18,7 @@
 #include "pros/distance.hpp"
 #include "robodash/api.h"
 #include "tuning/CharacterizationView.hpp"
+#include "tuning/FeedforwardTuner.hpp"
 #include "tuning/MotionProfileTuner.hpp"
 #include "tuning/PIDDriveControllerTuner.hpp"
 #include "utils/DistanceUtils.hpp"
@@ -128,12 +129,21 @@ control::DriverControl driverControl(leftMotors, rightMotors, controller);
 // the front.y and right.x positions
 
 // Sensor orientations are relative to robot frame - use standard angles directly
-// When robot faces North (0°compass): front→North, right→East, back→South, left→West  
-// These angles are RELATIVE to robot's orientation (0° = forward, -90°/270° = right, etc.)
-units::Pose backSensorPos(0_in, -7.64_in, from_stDeg(-180.0));  // Back sensor: -180° relative (backward)  
-units::Pose leftSensorPos(-6.0_in, 6.5_in, from_stDeg(90.0));     // Left sensor: 90° relative (left)
-units::Pose rightSensorPos(7.15_in, 5_in, from_stDeg(-90.0));     // Right sensor: -90° relative (right)
-units::Pose frontSensorPos(-5.5_in, 9.16_in, from_stDeg(0.0));    // Front sensor: 0° relative (forward)
+/* Inital guesses for sensor positions based on physical measurements
+units::Pose estBackSensorPos(0_in, -7.64_in, from_cDeg(-180.0));
+units::Pose estLeftSensorPos(-6.0_in, 6.5_in, from_cDeg(90.0));
+units::Pose estRightSensorPos(7.15_in, 5_in, from_cDeg(-90.0));
+units::Pose estFrontSensorPos(-5.5_in, 9.16_in, from_cDeg(0.0));
+*/
+// Using original physical measurements for the most accurate dimensions
+// front.y, back.y, left.x, right.x are based on physical measurements and should be accurate
+// NOTE: Using from_cDeg() for compass headings (0° = north, 90° = east, etc.)
+
+// Sensor orientations: use from_stDeg with angles relative to robot forward (standard math)
+units::Pose backSensorPos(0_in, -7.64_in, from_cDeg(180.0));
+units::Pose leftSensorPos(-6.0_in, 6.5_in, from_cDeg(90.0));
+units::Pose rightSensorPos(7.15_in, 5_in, from_cDeg(-90.0));
+units::Pose frontSensorPos(-5.5_in, 9.16_in, from_cDeg(0.0));
 
 // Setup configuration values - initial estimates that will be refined
 Length trackWidth = 11.0_in;		// Initial estimate for track width
@@ -147,7 +157,6 @@ double linearKd = 0.0;
 double angularKp = 1.0;
 double angularKi = 0.0;
 double angularKd = 165.0;
-// double angularKd = 2000.0;
 Mass robotMass = 13.6_lb;
 Torque driveTrainTorque = 2.1_Nm; // 6 motors at 0.35 Nm each
 
@@ -188,35 +197,7 @@ control::PIDDriveController pidDriveController(
 		[]()
 		{ return odometrySystem.getPose(); });
 
-// Optimized particle count to 1500 for balanced performance and accuracy
-localization::ParticleFilter particleFilter(odometrySystem, initialPose, 1500);  // Balanced at 1500 particles
-
-// Function to calculate expected distance to wall has been moved to utils/DistanceUtils.hpp
-
-void auton1()
-{
-	// Update the function call to use the new signature with units::Pose
-	// Length testD = utils::calculateExpectedDistance(units::Pose(-48_in, 48_in, 90_cDeg), units::Pose(0_in, 0_in, 180_cDeg));
-	// std::cout << "Test Distance: " << to_in(testD) << " in\n";
-	printf("Auton1\n");
-	odometrySystem.resetPose(initialPose);
-	units::Pose startPose = odometrySystem.getPose();
-	printf("Starting Pose: (%.2f, %.2f, %.2f)\n", to_in(startPose.x), to_in(startPose.y), to_cDeg(startPose.orientation));
-	pidDriveController.turnAngle(180_stDeg, 8.0, 15_sec);
-	// pidDriveController.driveDistance(24_in, 8.0, 15_sec);
-	// pidDriveController.driveDistance(48_in, 8.0, 15_sec);
-	units::Pose endPose = odometrySystem.getPose();
-	printf("Ending Pose: (%.2f, %.2f, %.2f)\n", to_in(endPose.x), to_in(endPose.y), to_cDeg(endPose.orientation));
-	pros::delay(1000); // Wait for a second to see the result
-	endPose = odometrySystem.getPose();
-	printf("Settled Pose: (%.2f, %.2f, %.2f)\n", to_in(endPose.x), to_in(endPose.y), to_cDeg(endPose.orientation));
-	// pidDriveController.turnAngle(-360_cDeg, 8.0);
-}
-
-void auton2()
-{
-	printf("Auton2\n");
-}
+localization::ParticleFilter particleFilter(odometrySystem, initialPose, 1250);
 
 rd::Selector selector({
 		// {"Auton 1", auton1, "", 1},
@@ -224,11 +205,10 @@ rd::Selector selector({
 		 {"LZ LG CG", autonLoadingZoneLongGoalCenterGoal, "", 240},
 		// {"Gen Path Test", genPathTest, "", 55},
 		// {"Odom Test", runOdomTest, "", 55},
-		// {"Dist Sensor Calib 1", calibrateParticleFilterDistanceSensorPoses, "", 55},
-		// {"Dist Sensor Calib 2", calibrateLeftYAndBackXAtRotatedHeading, "", 55},
+		{"PF DS Calib", calibrateParticleFilterDistanceSensorPoses, "", 55},
 		{"PF Test", runParticleFilterTest, "", 55},
-		// {"Tune kS", tuneKs, "", 55},
-		// {"Tune kV", tuneKv, "", 55},
+		{"Tune kS", tuneKs, "", 55},
+		{"Tune kV", tuneKv, "", 55},
 		// {"Tune kA", tuneKa, "", 55},
 		// {"Tune Turn PID", tuning::tuneAngularPID, "", 55},
 		// {"Tune Linear PID", tuning::tuneLinearPID, "", 55},

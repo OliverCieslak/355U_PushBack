@@ -10,8 +10,4 @@
  * of the particle filter localization compared to odometry.
  */
 void runParticleFilterTest();
-void testPoseTransformAndExpectedDistance();
 void calibrateParticleFilterDistanceSensorPoses();
-void calibrateLeftYAndBackXAtRotatedHeading();
-void debugBackSensorTransformation();
-void debugLeftSensorConnectivity();

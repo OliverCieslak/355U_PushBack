@@ -17,18 +17,24 @@ namespace utils {
  * @return units::Pose The sensor's global pose on the field
  */
 inline units::Pose sensorPoseToGlobal(const units::Pose& robotPose, const units::Pose& sensorPose) {
-    // Use standard-angle math directly (0 = +X/East, CCW positive)
-    Angle robotTheta = robotPose.orientation;
-    double cosTheta = fastCos(to_stRad(robotTheta));
-    double sinTheta = fastSin(to_stRad(robotTheta));
+    // Robot and sensor orientations are specified in compass (0° = north, 90° = east)
+    double robotThetaCompass = to_cDeg(robotPose.orientation);
+    double sensorThetaCompass = to_cDeg(sensorPose.orientation);
 
+    // Convert robot heading to standard (0° = east, CCW positive)
+    Angle robotThetaStd = from_stDeg(90.0 - robotThetaCompass);
+    double cosTheta = fastCos(to_stRad(robotThetaStd));
+    double sinTheta = fastSin(to_stRad(robotThetaStd));
+
+    // Rotate sensor offset by robot heading (standard)
     Length globalSensorX = robotPose.x + sensorPose.x * cosTheta - sensorPose.y * sinTheta;
     Length globalSensorY = robotPose.y + sensorPose.x * sinTheta + sensorPose.y * cosTheta;
 
-    // Sensor global orientation is robot orientation plus sensor relative orientation
-    Angle globalSensorOrientation = units::constrainAngle180(robotPose.orientation + sensorPose.orientation);
+    // Global sensor orientation in compass: robot - sensor (compass), then convert to standard
+    double globalSensorThetaCompass = robotThetaCompass - sensorThetaCompass;
+    Angle globalSensorThetaStd = from_stDeg(90.0 - globalSensorThetaCompass);
 
-    return units::Pose(globalSensorX, globalSensorY, globalSensorOrientation);
+    return units::Pose(globalSensorX, globalSensorY, globalSensorThetaStd);
 }
 
 // Field dimensions: how big the field is
