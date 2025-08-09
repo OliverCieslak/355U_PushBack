@@ -145,9 +145,24 @@ units::Pose frontSensorPos(-5.5_in, 9.16_in, from_cDeg(0.0));
 // Setup configuration values - initial estimates that will be refined
 Length trackWidth = 11.0_in;		// Initial estimate for track width
 Length wheelDiameter = 2.75_in;     // Diameter of wheels
-Number kS = 0.0;								// Static friction (volts)
-Number kV = 0.0;								// Velocity feedforward (volts per velocity)
-Number kA = 0.0;								// Acceleration feedforward (volts per acceleration)
+// Number kS = 0.0;								// Static friction (volts)
+Number kS = 3.42;
+// Results of 3 physical tests.  Will eventually use kS = 3.42;
+// Number kS = 0.321;								// Static friction (volts)
+// Number kS = 0.342;								// Static friction (volts)
+// Number kS = 0.342;								// Static friction (volts)
+// Number kV = 0.0;								// Velocity feedforward (volts per velocity)
+Number kV = 0.0926;								// Velocity feedforward (volts per velocity)
+// Results of 3 physical tests with kS=3.42.  Will eventually use kV = 0.0926 V/(in/s);
+// Number kV = 0.0922;								// Velocity feedforward (volts per velocity)
+// Number kV = 0.0897;								// Velocity feedforward (volts per velocity)
+// Number kV = 0.0960;								// Velocity feedforward (volts per velocity)
+// Number kA = 0.0;								// Acceleration feedforward (volts per acceleration)
+Number kA = 0.0332;								// Acceleration feedforward (volts per acceleration)
+// Number kA = 0.0332;								// Acceleration feedforward (volts per acceleration)
+// Number kA = 0.0333;								// Acceleration feedforward (volts per acceleration)
+// Number kA = 0.0327;								// Acceleration feedforward (volts per acceleration)
+
 double linearKp = 0.45;
 double linearKi = 0.0;
 double linearKd = 0.0;
@@ -202,10 +217,10 @@ rd::Selector selector({
 		 {"LZ LG CG", autonLoadingZoneLongGoalCenterGoal, "", 240},
 		// {"Gen Path Test", genPathTest, "", 55},
 		// {"Odom Test", runOdomTest, "", 55},
-		{"PF DS Calib", calibrateParticleFilterDistanceSensorPoses, "", 55},
-		{"PF Test", runParticleFilterTest, "", 55},
-		{"Tune kS", tuneKs, "", 55},
-		{"Tune kV", tuneKv, "", 55},
+		// {"PF DS Calib", calibrateParticleFilterDistanceSensorPoses, "", 55},
+		// {"PF Test", runParticleFilterTest, "", 55},
+		// {"Tune kS", tuneKs, "", 55},
+		// {"Tune kV", tuneKv, "", 55},
 		// {"Tune kA", tuneKa, "", 55},
 		// {"Tune Turn PID", tuning::tuneAngularPID, "", 55},
 		// {"Tune Linear PID", tuning::tuneLinearPID, "", 55},

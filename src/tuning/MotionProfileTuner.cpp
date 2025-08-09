@@ -148,35 +148,53 @@ void tuneKs() {
     [](double voltage, double velocity) {
       characterizationView.addVelocityDataPoint(voltage, velocity);
       // Show safety status
-      if (voltage >= 2.8) {
-        characterizationView.showStatusMessage("Safety", "WARNING: Approaching 3.0V limit");
+      if (voltage >= 9.0) {
+        characterizationView.showStatusMessage("Safety", "WARNING: Approaching 10.0V limit");
       }
     }
   );
   
   characterizationView.showKsTest();
-  characterizationView.showStatusMessage("Safety", "Max voltage: 3.0V | Timeout: 15s");
+  characterizationView.showStatusMessage("Safety", "Max voltage: 10.0V | Timeout: 15s");
   
   try {
-    // Run the kS tuning routine with safety features
-    kS = feedforwardTuner.tuneKs();
-    
-    // Update characterization view with the result
+    constexpr int numRuns = 7;
+    std::vector<double> ksResults;
+    ksResults.reserve(numRuns);
+    for (int i = 0; i < numRuns; ++i) {
+      printf("\n--- kS Calibration Run %d/%d ---\n", i+1, numRuns);
+      double result = feedforwardTuner.tuneKs();
+      ksResults.push_back(result);
+      pros::delay(1000); // Pause between runs
+    }
+
+    // Compute mean and standard deviation
+    double sum = 0.0;
+    for (double v : ksResults) sum += v;
+    double mean = sum / ksResults.size();
+    double sqSum = 0.0;
+    for (double v : ksResults) sqSum += (v - mean) * (v - mean);
+    double stddev = ksResults.size() > 1 ? std::sqrt(sqSum / (ksResults.size() - 1)) : 0.0;
+
+    kS = mean;
     characterizationView.updateKs(kS);
-    characterizationView.showStatusMessage("kS Measured", ("Value: " + std::to_string(kS)).c_str());
-    
-    // Display final result
-    printf("kS Calibration (Safe)\n");
-    printf("kS: %.4f V\n", kS);
-    
+    characterizationView.showStatusMessage("kS Measured", ("Mean: " + std::to_string(mean) + ", Stddev: " + std::to_string(stddev)).c_str());
+
+    printf("\n==== kS Calibration Results ====\n");
+    for (int i = 0; i < numRuns; ++i) {
+      printf("Run %d: %.4f V\n", i+1, ksResults[i]);
+    }
+    printf("Mean: %.4f V\n", mean);
+    printf("Stddev: %.4f V\n", stddev);
+
     // Save calibration value to SD card
     saveFeedForwardCalibrationValues();
-    
+
   } catch (const std::exception& e) {
     characterizationView.showStatusMessage("Error", e.what());
     printf("kS tuning failed: %s\n", e.what());
   }
-  
+
   characterizationView.showKsTest();
 }
 

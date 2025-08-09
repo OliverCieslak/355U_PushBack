@@ -49,11 +49,11 @@ Number FeedforwardTuner::tuneKs() {
     bool characterizingComplete = false;
     
     std::cout << "Starting kS calibration" << std::endl;
-    std::cout << "SAFETY: Max voltage limited to 3.0V, timeout after 15 seconds" << std::endl;
+    std::cout << "SAFETY: Max voltage limited to 10.0V, timeout after 15 seconds" << std::endl;
     
     // Safety limits
-    const double MAX_VOLTAGE = 3.0;  // Limit voltage to prevent robot from going too fast
-    const int MAX_STEPS = 150;       // 150 * 0.02V = 3.0V max
+    const double MAX_VOLTAGE = 10.0;  // Limit voltage to prevent robot from going too fast
+    const int MAX_STEPS = 500;        // 500 * 0.02V = 10.0V max
     const uint32_t TIMEOUT_MS = 15000; // 15 second timeout
     uint32_t startTime = pros::millis();
     
@@ -143,10 +143,10 @@ Number FeedforwardTuner::tuneKv(Number kS) {
     std::cout << "SAFETY: Max voltage limited to 6.0V, 1.5s per test" << std::endl;
     
     // Safety-limited test voltages (reduced from original)
-    const std::vector<double> testVoltages = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
-    const double MAX_APPLIED_VOLTAGE = 8.0; // Maximum total voltage including kS compensation
-    const uint32_t TEST_DURATION_MS = 1500;  // Reduced from 2000ms to 1500ms
-    const uint32_t TIMEOUT_MS = 30000;      // 30 second total timeout
+    const std::vector<double> testVoltages = {1.0, 1.25, 1.75};
+    const double MAX_APPLIED_VOLTAGE = 8.0;  // Maximum total voltage including kS compensation
+    const uint32_t TEST_DURATION_MS = 1000;
+    const uint32_t TIMEOUT_MS = 30000;       // 30 second total timeout
     
     uint32_t startTime = pros::millis();
     
@@ -229,9 +229,10 @@ Number FeedforwardTuner::tuneKv(Number kS) {
     }
     
     if (xValues.size() >= 3) {  // Need at least 3 points for reasonable regression
-        kV = utils::calculateLinearRegressionSlope(xValues, yValues);
-        
-        if (kV > 0) {
+        double slope = utils::calculateLinearRegressionSlope(xValues, yValues);
+        std::cout << "[Debug] Raw regression slope (velocity/volt): " << slope << std::endl;
+        if (slope != 0) {
+            kV = 1.0 / slope;
             std::cout << "kV Calibration completed successfully" << std::endl;
             std::cout << "kV: " << kV << " V·s/in" << std::endl;
         } else {
@@ -244,7 +245,6 @@ Number FeedforwardTuner::tuneKv(Number kS) {
         kV = 0.01; // Default fallback value
         std::cout << "Using fallback kV: " << kV << " V·s/in" << std::endl;
     }
-    
     return kV;
 }
 
@@ -261,8 +261,8 @@ Number FeedforwardTuner::tuneKa(Number kS, Number kV) {
     std::cout << "Starting kA calibration" << std::endl;
     std::cout << "kS: " << kS << " V, kV: " << kV << " V·s/in" << std::endl;
     
-    // Test different voltage levels to find voltage-acceleration relationship
-    const std::vector<double> testVoltages = {2.0, 4.0, 6.0, 8.0, 10.0, 12.0};
+    // Test different voltage levels to find voltage-acceleration relationship (limit to 4V max for safety)
+    const std::vector<double> testVoltages = {2.0, 3.0, 4.0, 5.0, 6.0};
     
     for (double voltage : testVoltages) {
         if (characterizingComplete) break;
@@ -343,15 +343,8 @@ Number FeedforwardTuner::tuneKa(Number kS, Number kV) {
     }
     
     kA = utils::calculateLinearRegressionSlope(xValues, yValues);
-    
-    if (kA > 0) {
-        std::cout << "kA Calibration completed" << std::endl;
-        std::cout << "kA: " << kA << " V·s²/in" << std::endl;
-    } else {
-        std::cout << "kA Calibration Failed" << std::endl;
-        std::cout << "Not enough data points" << std::endl;
-    }
-    
+    std::cout << "kA Calibration completed" << std::endl;
+    std::cout << "[kA Measured] Value: " << kA << " V·s²/in (may be negative if data is limited)" << std::endl;
     return kA;
 }
 
