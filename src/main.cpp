@@ -130,17 +130,14 @@ control::DriverControl driverControl(leftMotors, rightMotors, controller);
 
 // Sensor orientations are relative to robot frame - use standard angles directly
 /* Inital guesses for sensor positions based on physical measurements
-units::Pose estBackSensorPos(0_in, -7.64_in, from_cDeg(-180.0));
+units::Pose estBackSensorPos(6_in, -7.64_in, from_cDeg(-180.0));
 units::Pose estLeftSensorPos(-6.0_in, 6.5_in, from_cDeg(90.0));
 units::Pose estRightSensorPos(7.15_in, 5_in, from_cDeg(-90.0));
 units::Pose estFrontSensorPos(-5.5_in, 9.16_in, from_cDeg(0.0));
 */
 // Using original physical measurements for the most accurate dimensions
 // front.y, back.y, left.x, right.x are based on physical measurements and should be accurate
-// NOTE: Using from_cDeg() for compass headings (0° = north, 90° = east, etc.)
-
-// Sensor orientations: use from_stDeg with angles relative to robot forward (standard math)
-units::Pose backSensorPos(0_in, -7.64_in, from_cDeg(180.0));
+units::Pose backSensorPos(6_in, -7.64_in, from_cDeg(180.0));
 units::Pose leftSensorPos(-6.0_in, 6.5_in, from_cDeg(90.0));
 units::Pose rightSensorPos(7.15_in, 5_in, from_cDeg(-90.0));
 units::Pose frontSensorPos(-5.5_in, 9.16_in, from_cDeg(0.0));

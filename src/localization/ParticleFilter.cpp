@@ -287,7 +287,7 @@ namespace localization
             std::string rejectReason = "";
             
             // 1. Check confidence level - slightly relaxed for single-sensor scenarios
-            if (confidence < 12) {  // Lowered from 15 to 12 - need some flexibility with only 1 working sensor
+            if (confidence < 40) {  // Raised from 12 to 40 for higher data quality
                 sensorValid = false;
                 rejectReason = "LOW CONFIDENCE (" + std::to_string(confidence) + "/63)";
             }

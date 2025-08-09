@@ -49,10 +49,10 @@ void calibrateParticleFilterDistanceSensorPoses() {
     // Goal: Find the true x/y location of each distance sensor on the robot.
     // Plan:
     // 1) Start at a known field pose: (48 in, 48 in, 0°).
-    // 2) For 18 steps (18 × 20° = full 360°):
+    // 2) For 36 steps (36 × 10° = full 360°):
     //    - Every second, record the odometry pose and 3 quick readings from each sensor
     //      (one immediately, then +100 ms, then +200 ms). Also record confidence.
-    //    - Turn the robot by +20° using the PID drive controller.
+    //    - Turn the robot by +10° using the PID drive controller.
     // 3) After collecting data, keep each sensor's facing direction (orientation) fixed,
     //    but adjust its x/y within ±1 inch to best fit all the measurements.
     // ============================================================
@@ -141,22 +141,12 @@ void calibrateParticleFilterDistanceSensorPoses() {
         int conf = ds.get_confidence();
         Length d = from_mm(mm);
 
-        // Print the sensor's global position and orientation for debugging
-        units::Pose robotPoseStd(robotPose.x, robotPose.y, from_stDeg(to_stDeg(robotPose.orientation)));
-        units::Pose sensorOffsetStd(sensorPose.x, sensorPose.y, from_stDeg(to_stDeg(sensorPose.orientation)));
-        units::Pose globalSensorPose = utils::sensorPoseToGlobal(robotPoseStd, sensorOffsetStd);
-        std::cout << sensorName << " sensor global pose: (x=" << to_in(globalSensorPose.x)
-                  << ", y=" << to_in(globalSensorPose.y)
-                  << ", theta=" << to_stDeg(globalSensorPose.orientation) << "° st / "
-                  << to_cDeg(globalSensorPose.orientation) << "° compass)" << std::endl;
-
         // Calculate expected distance for comparison
         Length expectedDist = utils::calculateExpectedDistance(robotPose, sensorPose);
         double expectedInches = to_in(expectedDist);
 
-        // Very permissive filtering - accept confidence as low as 5/63 (~8%)
-        // to maximize data collection
-        if (conf < 5 || !utils::isValidDistanceSensorReading(d)) {
+        // Require confidence at least 40/63 (~63%) to accept a reading as 'good'
+        if (conf < 40 || !utils::isValidDistanceSensorReading(d)) {
             std::cout << sensorName << ": REJECTED (conf=" << conf << "/63, dist=" << to_in(d) << " in) vs expected " << expectedInches << " in" << std::endl;
             return {std::numeric_limits<double>::quiet_NaN(), 0};
         }
@@ -224,21 +214,21 @@ void calibrateParticleFilterDistanceSensorPoses() {
     };
 
     std::vector<PoseSample> samples;
-    samples.reserve(19);
+    samples.reserve(37);
 
     // Take initial sample at 0°
-    std::cout << "\n[Step 1/19] Sampling sensors..." << std::endl;
+    std::cout << "\n[Step 1/37] Sampling sensors..." << std::endl;
     PoseSample s = takePoseSample();
     samples.push_back(s);
 
-    // 2) Loop 18 times to cover full 360° (after 18 × 20° turns)
-    for (int i = 0; i < 18; ++i) {
+    // 2) Loop 36 times to cover full 360° (after 36 × 10° turns)
+    for (int i = 0; i < 36; ++i) {
         // Brief delay before turning (no need for full second anymore)
         pros::delay(100);
 
-        // Turn +20° using the PID controller and wait until the turn settles
-        std::cout << "Turning +20 degrees..." << std::endl;
-        pidDriveController.turnAngle(20_stDeg, 6.0, 3_sec, true);
+        // Turn +10° using the PID controller and wait until the turn settles
+        std::cout << "Turning +10 degrees..." << std::endl;
+        pidDriveController.turnAngle(10_stDeg, 6.0, 3_sec, true);
         pros::delay(500);
 
         // Additional settling time after turn to ensure robot is completely stable
@@ -246,7 +236,7 @@ void calibrateParticleFilterDistanceSensorPoses() {
         std::cout << "Allowing robot to settle..." << std::endl;
         pros::delay(500);
 
-        std::cout << "\n[Step " << (i + 2) << "/19] Sampling sensors..." << std::endl;
+        std::cout << "\n[Step " << (i + 2) << "/37] Sampling sensors..." << std::endl;
         PoseSample s = takePoseSample();
         samples.push_back(s);
     }
@@ -261,7 +251,7 @@ void calibrateParticleFilterDistanceSensorPoses() {
                          const units::Pose& currentPose,
                          auto selector) -> BestFitResult {
         // selector gets the appropriate SensorTriple from a PoseSample
-        // Grid search over x and y in ±1.0 in around current guess, step 0.1 in
+        // Grid search over x and y in ±2.0 in around current guess, step 0.1 in
         double x0 = to_in(currentPose.x);
         double y0 = to_in(currentPose.y);
         double bestErr = std::numeric_limits<double>::infinity();
@@ -280,7 +270,8 @@ void calibrateParticleFilterDistanceSensorPoses() {
                 double expectedIn = to_in(expected);
                 double error = T.weightedAvgInches - expectedIn;
                 // Weight by confidence (normalize to ~0..1, adjusted for 7 readings)
-                double w = std::min(1.0, std::max(0.0, T.totalConfidence / 63.0 / 7.0));
+                // Weight by confidence (normalize to ~0..1, adjusted for 3 readings)
+                double w = std::min(1.0, std::max(0.0, T.totalConfidence / 63.0 / 3.0));
                 sse += w * error * error;
                 ++used;
             }
@@ -288,8 +279,8 @@ void calibrateParticleFilterDistanceSensorPoses() {
             return sse / used; // mean squared error
         };
 
-        for (double dx = -1.0; dx <= 1.0001; dx += 0.1) {
-            for (double dy = -1.0; dy <= 1.0001; dy += 0.1) {
+        for (double dx = -2.0; dx <= 2.0001; dx += 0.1) {
+            for (double dy = -2.0; dy <= 2.0001; dy += 0.1) {
                 double err = evalError(x0 + dx, y0 + dy);
                 if (err < bestErr) {
                     bestErr = err;
