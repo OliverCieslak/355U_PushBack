@@ -148,9 +148,9 @@ Length wheelDiameter = 2.75_in;     // Diameter of wheels
 // Number kS = 0.0;								// Static friction (volts)
 Number kS = 3.42;
 // Results of 3 physical tests.  Will eventually use kS = 3.42;
-// Number kS = 0.321;								// Static friction (volts)
-// Number kS = 0.342;								// Static friction (volts)
-// Number kS = 0.342;								// Static friction (volts)
+// Number kS = 3.21;								// Static friction (volts)
+// Number kS = 3.42;								// Static friction (volts)
+// Number kS = 3.42;								// Static friction (volts)
 // Number kV = 0.0;								// Velocity feedforward (volts per velocity)
 Number kV = 0.0926;								// Velocity feedforward (volts per velocity)
 // Results of 3 physical tests with kS=3.42.  Will eventually use kV = 0.0926 V/(in/s);
