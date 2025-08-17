@@ -99,6 +99,8 @@ class PIDDriveController {
 public:
     // Use the ActionTrigger enum from ActionScheduler
     using ActionTrigger = control::ActionTrigger;
+    // Alias for a 2D point (x, y) in field coordinates
+    using Point = units::Vector2D<Length>;
 
     /**
      * @brief Construct a new PID Drive Controller
@@ -176,6 +178,26 @@ public:
      */
     bool driveToPose(
         units::Pose targetPose,
+        Number maxVoltage = 12.0,
+        Time timeout = 10_sec,
+        bool waitUntilSettled = true
+    );
+
+    /**
+     * @brief Drive to a target point (x, y) using linear and angular PID control
+     *
+     * This blends the behaviors of driveDistance (for forward motion) and
+     * turnToHeading (for steering toward the point). It ignores final heading
+     * and considers the motion complete when within linearTolerance of the point.
+     *
+     * @param targetPoint Target point (field x,y)
+     * @param maxVoltage Maximum voltage to apply to motors
+     * @param timeout Maximum time to spend attempting to reach target
+     * @param waitUntilSettled Whether to block until motion is complete
+     * @return true if target was reached within timeout
+     */
+    bool driveToPoint(
+        const Point& targetPoint,
         Number maxVoltage = 12.0,
         Time timeout = 10_sec,
         bool waitUntilSettled = true
@@ -344,8 +366,9 @@ private:
     enum class MotionType {
         NONE,
         LINEAR,
-        ANGULAR,
-        POSE
+    ANGULAR,
+    POSE,
+    POINT
     };
     MotionType m_motionType = MotionType::NONE;
     bool m_isMoving = false;
@@ -370,6 +393,7 @@ private:
     // Distance tracking
     units::Pose m_previousPose;             // Previous robot pose for distance calculation
     Length m_accumulatedDistance = 0_m;     // Total accumulated distance traveled
+    Point m_pointTarget;                    // Target point for POINT motion
     
     // Callback for error reporting
     std::function<void(double, double)> m_errorCallback;
@@ -410,6 +434,13 @@ private:
      * @return true if settled
      */
     bool isPoseSettled(const units::Pose& currentPose) const;
+
+    /**
+     * @brief Check if the point motion is settled (distance only)
+     *
+     * Uses linearTolerance and required settle time.
+     */
+    bool isPointSettled(const units::Pose& currentPose);
     
     /**
      * @brief Apply feedforward to output voltages

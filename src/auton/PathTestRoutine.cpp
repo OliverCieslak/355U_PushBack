@@ -26,19 +26,31 @@ void genPathTest() {
   printf("Gen Path test...");
 
   // Set initial robot position
-  units::Pose startingPosition = units::Pose(0_in, 0_in, 45_cDeg);
-  odometrySystem.resetPose(startingPosition);
+    units::Pose initialPose = units::Pose(-46_in, -12_in, from_cDeg(180));
+    odometrySystem.resetPose(initialPose);
+    // odometrySystem.start();
 
   // Create a path with waypoints
+  /*
   std::vector<units::Pose> path = {
-      startingPosition,
+      initialPose,
       units::Pose(48_in, 48_in, 90_cDeg),
       units::Pose(-48_in, 48_in, 180_cDeg),
       units::Pose(-48_in, -48_in, 270_cDeg),
       units::Pose(48_in, -48_in, 0_cDeg),
       units::Pose(0_in, 0_in, -45_cDeg),
   };
-
+  */
+  std::vector<units::Pose> path = {
+      initialPose,
+      units::Pose(-36_in, -58_in, from_cDeg(90)),
+      units::Pose(29_in, -58_in, from_cDeg(90)),
+      units::Pose(40_in, 37_in, from_cDeg(0)),
+      units::Pose(-31_in, -59_in, from_cDeg(270)),
+      units::Pose(-47_in, -58_in, from_cDeg(270)),
+      units::Pose(-47_in, 12_in, from_cDeg(180)),
+  };
+  
   printf("Generating traj");
 
   printf("Max Accel: %.2f in/s²\n", to_inps2(maxAccel));

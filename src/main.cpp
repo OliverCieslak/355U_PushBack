@@ -202,28 +202,31 @@ odometry::SkidSteerOdometry odometrySystem(
 		wheelDiameter,
 		initialPose);
 
+localization::ParticleFilter particleFilter(odometrySystem, initialPose, 1250);
+
 control::PIDDriveController pidDriveController(
 		leftMotors,
 		rightMotors,
 		{trackWidth, wheelDiameter, linearKp, linearKi, linearKd, angularKp, angularKi, angularKd, kV, kS},
 		[]()
-		{ return odometrySystem.getPose(); });
-
-localization::ParticleFilter particleFilter(odometrySystem, initialPose, 1250);
+		{ return odometrySystem.getPose(); }); // TODO - Swap this out for particleFilter.getPose()
 
 rd::Selector selector({
-		// {"Auton 1", auton1, "", 1},
-		 {"CG Only", autonCenterGoalOnly, "", 240},
-		 {"LZ LG CG", autonLoadingZoneLongGoalCenterGoal, "", 240},
+		 {"7 Ball", autonSevenBallLongGoal, "", 240},
+		 {"9 Ball", autonNineBallLongGoal, "", 240},
+		 {"PurePursuit", purePursuitTest, "", 240},
+		 // {"Skills", autonSkills, "", 240},
+		 // {"CG Only", autonCenterGoalOnly, "", 240},
+		 // {"LZ LG CG", autonLoadingZoneLongGoalCenterGoal, "", 240},
 		// {"Gen Path Test", genPathTest, "", 55},
 		// {"Odom Test", runOdomTest, "", 55},
 		// {"PF DS Calib", calibrateParticleFilterDistanceSensorPoses, "", 55},
 		// {"PF Test", runParticleFilterTest, "", 55},
-		// {"Tune kS", tuneKs, "", 55},
-		// {"Tune kV", tuneKv, "", 55},
-		// {"Tune kA", tuneKa, "", 55},
-		// {"Tune Turn PID", tuning::tuneAngularPID, "", 55},
-		// {"Tune Linear PID", tuning::tuneLinearPID, "", 55},
+		{"Tune kS", tuneKs, "", 55},
+		{"Tune kV", tuneKv, "", 55},
+		{"Tune kA", tuneKa, "", 55},
+		// {"Manual Turn", manualTurnTest, "", 55},
+		// {"Manual Linear", manualLinearTest, "", 55},
 		// {"Path Test", runPathTest, "", 55},
 });
 
@@ -370,7 +373,25 @@ void disabled() {}
  * starts.
  */
 void competition_initialize() {
-	
+	int rightSensorDistance = rightSensor.get_distance();
+	int leftSensorDistance = leftSensor.get_distance();
+
+	if(rightSensorDistance > 0 && leftSensorDistance > 0) {
+		if(rightSensorDistance < leftSensorDistance) {
+			autonStartingPosition = LeftOrRight::RIGHT;
+		} else {
+			autonStartingPosition = LeftOrRight::LEFT;
+		}
+	}
+
+	getAutonColorState();
+
+	printf("Alliance: %s - Auton Starting Position: %s\n", 
+		(allianceColor == AllianceColor::BLUE) ? "BLUE" : "RED",
+		(autonStartingPosition == LeftOrRight::LEFT) ? "LEFT" : "RIGHT");
+	controller.print(0, 0, "%s - %s", 
+		(allianceColor == AllianceColor::BLUE) ? "BLUE" : "RED",
+		(autonStartingPosition == LeftOrRight::LEFT) ? "LEFT" : "RIGHT");
 }
 
 /**
@@ -390,27 +411,22 @@ void autonomous()
 	std::cout << "Autonomous mode started" << std::endl;
 	topColorSortingSensor.set_led_pwm(100); // Ensure the sensor is active
 
-	int rightSensorDistance = rightSensor.get_distance();
-	int leftSensorDistance = leftSensor.get_distance();
+	if(allianceColor != AllianceColor::BLUE && allianceColor == AllianceColor::RED) {
+		// probably did not connect in the right order
+		int rightSensorDistance = rightSensor.get_distance();
+		int leftSensorDistance = leftSensor.get_distance();
 
-	if(rightSensorDistance > 0 && leftSensorDistance > 0) {
-		if(rightSensorDistance < leftSensorDistance) {
-			autonStartingPosition = LeftOrRight::RIGHT;
-		} else {
-			autonStartingPosition = LeftOrRight::LEFT;
+		if(rightSensorDistance > 0 && leftSensorDistance > 0) {
+			if(rightSensorDistance < leftSensorDistance) {
+				autonStartingPosition = LeftOrRight::RIGHT;
+			} else {
+				autonStartingPosition = LeftOrRight::LEFT;
+			}
 		}
-	}
-		/*
-	} else if(rightSensorDistance > 0 && leftSensorDistance <= 0) {
-		autonStartingPosition = LeftOrRight::RIGHT;
-	} else if(rightSensorDistance <= 0 && leftSensorDistance > 0) {
-		autonStartingPosition = LeftOrRight::LEFT;
-	}
-		*/
 
-	printf("Auton Starting Position: %s\n", (autonStartingPosition == LeftOrRight::LEFT) ? "LEFT" : "RIGHT");
-	getAutonColorState();
-	// odometrySystem.start();
+		getAutonColorState();
+	}
+
 	selector.run_auton();
 }
 

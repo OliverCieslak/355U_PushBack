@@ -21,6 +21,19 @@ MotionProfilerRamseteController::MotionProfilerRamseteController(
 
 void MotionProfilerRamseteController::setTrajectory(const Trajectory& trajectory) {
     m_trajectory = trajectory;
+    // If distance data wasn't populated (last state's distance == 0 but we have >1 state), compute cumulative distances
+    const auto &statesRef = m_trajectory.getStates();
+    if (statesRef.size() > 1 && statesRef.back().distance == 0_in) {
+        // We need to modify the internal vector; create a copy, compute, then assign back
+        auto statesCopy = statesRef; // copy
+        Length cumulative = 0_in;
+        statesCopy[0].distance = 0_in;
+        for (size_t i = 1; i < statesCopy.size(); ++i) {
+            cumulative += statesCopy[i-1].pose.distanceTo(statesCopy[i].pose);
+            statesCopy[i].distance = cumulative;
+        }
+        m_trajectory = Trajectory(statesCopy);
+    }
     m_trajectoryTime = 0_sec;
     m_isFollowing = true;
     m_actualDistanceTraveled = 0_in;  // Reset accumulated distance
@@ -52,9 +65,11 @@ bool MotionProfilerRamseteController::update(Time dt) {
         return false;
     }
     
-    // Get current state of the trajectory
-    // auto trajectoryState = m_trajectory.sample(m_trajectoryTime);
-    auto trajectoryState = m_trajectory.sampleByDistance(m_actualDistanceTraveled);
+    // Get current state of the trajectory.
+    // Distance-based sampling was causing a stall at start because actual distance stayed 0
+    // so we never advanced beyond the first state (zero commanded velocity). Use time-based
+    // sampling so the reference progresses even before motion begins.
+    auto trajectoryState = m_trajectory.sample(m_trajectoryTime);
     
     // If we've reached the end of the trajectory
     if (m_trajectoryTime >= m_trajectory.getTotalTime()) {
@@ -62,7 +77,8 @@ bool MotionProfilerRamseteController::update(Time dt) {
         return false;
     }
 
-    if(m_actualDistanceTraveled >= m_trajectory.getTotalDistance()) {
+    Length totalDist = m_trajectory.getTotalDistance();
+    if(totalDist > 0_in && m_actualDistanceTraveled >= totalDist) {
         stop();
         return false;
     }
@@ -113,6 +129,15 @@ bool MotionProfilerRamseteController::update(Time dt) {
     // Apply voltages to motors
     m_leftMotors.move(leftVoltage);
     m_rightMotors.move(rightVoltage);
+
+    // Debug logging (throttle every 100ms)
+    static int dbgCounter = 0;
+    if (++dbgCounter >= 10) { // 10 * 10ms = 100ms
+        dbgCounter = 0;
+        printf("[RAMSETE] t=%.2f s ref_v=%.2f in/s leftV=%.2f rightV=%.2f dist=%.2f in\n",
+               to_sec(m_trajectoryTime), to_inps(trajectoryState.velocity),
+               leftVoltage.internal(), rightVoltage.internal(), to_in(m_actualDistanceTraveled));
+    }
     
     // Update trajectory time
     m_trajectoryTime += dt;
@@ -229,20 +254,21 @@ std::pair<Number, Number> MotionProfilerRamseteController::calculateFeedforward(
     LinearAcceleration leftLinearAccel = utils::toLinear(leftAccel, m_driveConfig.wheelDiameter);
     LinearAcceleration rightLinearAccel = utils::toLinear(rightAccel, m_driveConfig.wheelDiameter);
     
-    // Apply feedforward model: kS + kV * velocity + kA * acceleration
-    Number leftVoltage = m_driveConfig.kS;
-    if (leftLinearVelocity != 0_mps) leftVoltage *= units::sgn(leftLinearVelocity);
-    leftVoltage += m_driveConfig.kV * to_mps(leftLinearVelocity) + m_driveConfig.kA * to_mps2(leftLinearAccel);
-    
-    Number rightVoltage = m_driveConfig.kS;
-    if (rightLinearVelocity != 0_mps) rightVoltage *= units::sgn(rightLinearVelocity);
-    rightVoltage += m_driveConfig.kV * to_mps(rightLinearVelocity) + m_driveConfig.kA * to_mps2(rightLinearAccel);
-    
-    // Clamp voltages to valid range (-1.0 to 1.0 for normalized voltage)
-    leftVoltage = units::clamp(leftVoltage, Number(-1.0), Number(1.0));
-    rightVoltage = units::clamp(rightVoltage, Number(-1.0), Number(1.0));
-    
-    return {leftVoltage, rightVoltage};
+    // Feedforward model (constants expressed in volts). Convert to percent (-1..1) by dividing by nominal battery voltage.
+    constexpr double kNominalBattery = 12.0; // adjust if different
+    auto ffCalc = [&](LinearVelocity vel, LinearAcceleration acc) {
+        Number volts = Number(0);
+        if (vel != 0_mps) {
+            volts = m_driveConfig.kS * units::sgn(vel);
+        }
+        volts += m_driveConfig.kV * to_mps(vel) + m_driveConfig.kA * to_mps2(acc);
+        Number percent = volts / kNominalBattery;
+        return units::clamp(percent, Number(-1.0), Number(1.0));
+    };
+
+    Number leftPercent = ffCalc(leftLinearVelocity, leftLinearAccel);
+    Number rightPercent = ffCalc(rightLinearVelocity, rightLinearAccel);
+    return {leftPercent, rightPercent};
 }
 
 bool MotionProfilerRamseteController::addAction(std::function<void()> action, ActionTrigger trigger, double value) {

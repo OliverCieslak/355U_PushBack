@@ -1,7 +1,13 @@
 #include "auton/AntiStallColorSort.hpp"
 #include "control/PIDDriveController.hpp"
-#include "odometry/SkidSteerOdometry.hpp"
+#include "hardware/Motor/MotorGroup.hpp"
+#include "localization/ParticleFilter.hpp"
 #include "main.h"
+#include "motion/MotionProfilerRamseteController.hpp"
+#include "motion/TrajectoryGenerator.hpp"
+#include "odometry/SkidSteerOdometry.hpp"
+#include "pros/adi.hpp"
+#include "pros/motors.hpp"
 #include "units/units.hpp"
 #include "units/Pose.hpp"
 
@@ -12,10 +18,31 @@ enum class LeftOrRight {
     RIGHT = 1
 };
 
+extern Length trackWidth;
+extern Length wheelDiameter;
+extern Number kS;
+extern Number kV;
+extern Number kA;
+extern Mass robotMass;
+extern Torque driveTrainTorque;
+extern LinearVelocity maxVelocity;
+extern LinearAcceleration maxAccel;
+extern LinearAcceleration maxCentripetalAccel;
 extern control::PIDDriveController pidDriveController;
 extern odometry::SkidSteerOdometry odometrySystem;
+extern localization::ParticleFilter particleFilter;
 extern LeftOrRight autonStartingPosition;
 extern pros::ADIDigitalOut scraperPiston;
+extern lemlib::MotorGroup leftMotors;
+extern lemlib::MotorGroup rightMotors;
 
 void autonCenterGoalOnly();
 void autonLoadingZoneLongGoalCenterGoal();
+void autonSevenBallLongGoal();
+void autonNineBallLongGoal();
+void autonSkills();
+void ramseteTest();
+void purePursuitTest();
+
+void manualTurnTest();
+void manualLinearTest();

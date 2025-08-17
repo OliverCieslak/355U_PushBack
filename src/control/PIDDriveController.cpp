@@ -61,6 +61,43 @@ bool PIDDriveController::driveDistance(Length distance, Number maxVoltage, Time 
     return true;
 }
 
+bool PIDDriveController::driveToPoint(const Point& targetPoint, Number maxVoltage, Time timeout, bool waitUntilSettled) {
+    // Initialize motion parameters
+    m_pointTarget = targetPoint;
+    m_maxVoltage = maxVoltage;
+    m_timeout = timeout;
+    m_elapsedTime = 0_sec;
+
+    // Reset distance tracking
+    m_accumulatedDistance = 0_in;
+    m_previousPose = m_poseProvider();
+
+    // Set motion type and flags
+    m_motionType = MotionType::POINT;
+    m_isMoving = true;
+
+    // Reset controllers
+    m_linearController.reset();
+    m_angularController.reset();
+
+    // Reset settle timers
+    m_linearSettleTimer = 0_msec;
+    m_angularSettleTimer = 0_msec;
+
+    // Reset action execution flags
+    m_actionScheduler.resetActions();
+
+    if (waitUntilSettled) {
+        const Time updateInterval = 10_msec;
+        while (update(updateInterval) && m_elapsedTime < m_timeout) {
+            pros::delay(10);
+            m_elapsedTime += updateInterval;
+        }
+        return isSettled();
+    }
+    return true;
+}
+
 bool PIDDriveController::turnToHeading(Angle targetHeading, Number maxVoltage, Time timeout, bool waitUntilSettled) {
     // Initialize motion parameters
     m_angularTarget = targetHeading;
@@ -170,7 +207,7 @@ bool PIDDriveController::update(Time dt) {
     units::Pose currentPose = m_poseProvider();
     
     // Update accumulated distance
-    if (m_motionType == MotionType::LINEAR || m_motionType == MotionType::POSE) {
+    if (m_motionType == MotionType::LINEAR || m_motionType == MotionType::POSE || m_motionType == MotionType::POINT) {
         m_accumulatedDistance += currentPose.distanceTo(m_previousPose);
         m_previousPose = currentPose;
     }
@@ -189,6 +226,11 @@ bool PIDDriveController::update(Time dt) {
         case MotionType::POSE:
             totalDistance = m_previousPose.distanceTo(m_poseTarget);
             break;
+        case MotionType::POINT: {
+            units::Pose ptPose{m_pointTarget.x, m_pointTarget.y, 0_stRad};
+            totalDistance = m_previousPose.distanceTo(ptPose);
+            break;
+        }
         default:
             totalDistance = 0_in;
     }
@@ -236,6 +278,11 @@ bool PIDDriveController::update(Time dt) {
             
             // Calculate output from angular PID controller
             Number angularOutput = m_angularController.calculate(to_stDeg(headingError), 0, to_msec(m_elapsedTime));
+
+            // Add sign-aware static feedforward to overcome friction
+            if (angularOutput != 0.0) {
+                angularOutput += units::sgn(angularOutput) * m_config.kS;
+            }
             
             // Apply angular output to wheels (differential turning)
             leftVoltage = -angularOutput;
@@ -249,6 +296,56 @@ bool PIDDriveController::update(Time dt) {
             break;
         }
         
+        case MotionType::POINT: {
+            // Blend of driveDistance and turnToHeading using current odometry
+            units::Pose currentPose = m_poseProvider();
+
+            // Direction to target point and distance
+            units::Pose targetPose{m_pointTarget.x, m_pointTarget.y, 0_stRad};
+            Angle headingToTarget = currentPose.angleTo(targetPose);
+            Length distanceToTarget = currentPose.distanceTo(targetPose);
+
+            // Errors
+            Length linearError = distanceToTarget; // want to reduce to zero
+            Angle angularError = units::constrainAngle180(currentPose.orientation - headingToTarget);
+
+            // PID outputs
+            Number linearOutput = m_linearController.calculate(0, to_in(linearError), to_msec(m_elapsedTime));
+            Number headingCorrection = m_angularController.calculate(to_stDeg(angularError), 0, to_msec(m_elapsedTime));
+
+            // Add sign-aware static feedforward to heading correction
+            if (headingCorrection != 0.0) {
+                headingCorrection += units::sgn(headingCorrection) * m_config.kS;
+            }
+
+            // When close to the target point, limit heading correction to 10% of linear output
+            if (distanceToTarget < 6_in) {
+                Number maxCorrection = std::abs(linearOutput) * 0.10;
+                if (headingCorrection > maxCorrection) headingCorrection = maxCorrection;
+                if (headingCorrection < -maxCorrection) headingCorrection = -maxCorrection;
+            }
+
+            // Apply feedforward to linear output similar to LINEAR mode
+            LinearVelocity estimatedVelocity = LinearVelocity(linearOutput / 12.0 * 2.0);
+            linearOutput = applyFeedforward(linearOutput, estimatedVelocity);
+
+            // Normalize and desaturate like boomerang path does
+            Number lateralCmd = units::clamp(linearOutput / m_maxVoltage, -1.0, 1.0);
+            Number angularCmd = units::clamp(headingCorrection / m_maxVoltage, -1.0, 1.0);
+            auto [leftCmd, rightCmd] = desaturate(lateralCmd, angularCmd);
+
+            // Convert normalized -1..1 to actual voltage
+            leftVoltage = leftCmd * m_maxVoltage;
+            rightVoltage = rightCmd * m_maxVoltage;
+
+            // Consider settled when within linear tolerance of point for required settle time
+            if (isPointSettled(currentPose)) {
+                stop();
+                return false;
+            }
+            break;
+        }
+
         case MotionType::POSE: {
             // Boomerang control implementation
             
@@ -575,6 +672,17 @@ bool PIDDriveController::isPoseSettled(const units::Pose& currentPose) const {
     Angle headingError = units::abs(units::constrainAngle180(currentPose.orientation - m_poseTarget.orientation));
     
     return (distanceError <= m_config.linearTolerance) && (headingError <= m_config.angularTolerance);
+}
+
+bool PIDDriveController::isPointSettled(const units::Pose& currentPose) {
+    Length distanceError = currentPose.distanceTo(units::Pose{m_pointTarget.x, m_pointTarget.y, 0_stRad});
+    bool withinTolerance = distanceError <= m_config.linearTolerance;
+    if (withinTolerance) {
+        m_linearSettleTimer += 10_msec; // mirror linear settle semantics
+    } else {
+        m_linearSettleTimer = 0_msec;
+    }
+    return m_linearSettleTimer >= m_requiredSettleTime;
 }
 
 Number PIDDriveController::applyFeedforward(Number voltage, LinearVelocity velocity) {
