@@ -13,7 +13,6 @@
 #include "liblvgl/lvgl.h"
 #include "localization/ParticleFilter.hpp"
 #include "motion/TrajectoryGenerator.hpp"
-#include "motion/MotionProfilerRamseteController.hpp"
 #include "odometry/SkidSteerOdometry.hpp"
 #include "pros/distance.hpp"
 #include "robodash/api.h"
@@ -214,7 +213,9 @@ control::PIDDriveController pidDriveController(
 rd::Selector selector({
 		 {"7 Ball", autonSevenBallLongGoal, "", 240},
 		 {"9 Ball", autonNineBallLongGoal, "", 240},
-		 {"PurePursuit", purePursuitTest, "", 240},
+		 {"PP Full Path", purePursuitTest, "", 240},
+		 {"PP Straight", purePursuitStraightTest, "", 120},
+		 {"PP S Curve", purePursuitSTest, "", 180},
 		 // {"Skills", autonSkills, "", 240},
 		 // {"CG Only", autonCenterGoalOnly, "", 240},
 		 // {"LZ LG CG", autonLoadingZoneLongGoalCenterGoal, "", 240},

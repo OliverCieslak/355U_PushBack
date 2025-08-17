@@ -1,4 +1,5 @@
 #include "auton/PathTestRoutine.hpp"
+#include "motion/PurePursuitController.hpp"
 
 // External reference to trajectory view defined in main.cpp
 extern viz::FieldView fieldView;
@@ -57,13 +58,13 @@ void genPathTest() {
   printf("Max Centripetal Accel: %.2f in/s²\n", to_inps2(maxCentripetalAccel));
   motion::TrajectoryConfig config(maxVelocity, maxAccel, maxCentripetalAccel);
 
-  // Create drive configuration with safety bounds
-  control::DifferentialDriveConfig driveConfig(
-      std::max(1.0_in, trackWidth),    // Ensure non-zero track width
-      std::max(1.0_in, wheelDiameter), // Ensure non-zero wheel diameter
-      kV,
-      kA,
-      kS);
+    // Create drive configuration with safety bounds
+    control::DifferentialDriveConfig driveConfig(
+            std::max(1.0_in, trackWidth),    // Ensure non-zero track width
+            std::max(1.0_in, wheelDiameter), // Ensure non-zero wheel diameter
+            kV,
+            kA,
+            kS);
 
   // Generate and follow trajectory
   printf("Generating traj");
@@ -142,9 +143,17 @@ void runPathTest() {
         return odometrySystem.getPose();
     };
 
-    printf("Creating profiler");
-    // Create motion profiler
-    motion::MotionProfilerRamseteController profiler(leftMotors, rightMotors, driveConfig, poseProvider);
+    printf("Creating Pure Pursuit controller\n");
+    static motion::PurePursuitController pp(
+        leftMotors,
+        rightMotors,
+        driveConfig,
+        poseProvider,
+        8_in,  // lookahead
+        12_inps, // cruise velocity fallback
+        2_in   // tolerance
+    );
+    pp.setStanleyGains(Number(0.3), 2_inps, Number(1.0));
 
     // Generate and follow trajectory
     printf("Generating traj");
@@ -184,20 +193,20 @@ void runPathTest() {
     // Visualize the generated trajectory using FieldView, passing the generation time
     fieldView.drawTrajectory(trajectory, generation_time_ms);
     
-    printf("Setting trajectory");
-    profiler.setTrajectory(trajectory);
-    
-    printf("Following path");
+    printf("Setting trajectory in PP controller\n");
+    pp.setTrajectory(trajectory);
+
+    printf("Following path (Pure Pursuit)\n");
     uint32_t startTime = pros::millis();
     uint32_t lastDisplayUpdateTime = startTime;
     
-    // Use the new followTrajectory method asynchronously
-    profiler.followTrajectory(true); // Run in async mode
+    // Start pure pursuit asynchronously
+    pp.followPath(true, false);
     
     // Simple visualization loop with safety timeout
     uint32_t timeoutMs = (uint32_t)(to_sec(trajectory.getTotalTime()) * 1000 * 1.5); // 50% extra time
     
-    while (profiler.isFollowing()) {
+    while (pp.isFollowing()) {
         uint32_t currentTime = pros::millis();
         
         // Safety timeout
@@ -215,13 +224,13 @@ void runPathTest() {
         // Update status every second
         if (currentTime % 1000 < 10)
         {
-          printf("%.1f/%.1fs", to_sec(profiler.getTrajectoryTime()), to_sec(trajectory.getTotalTime()));
+          printf("%.1f/%.1fs", (pros::millis() - startTime)/1000.0, to_sec(trajectory.getTotalTime()));
         }
         
         pros::delay(10); // Minimize CPU usage while still being responsive
     }
     
     // Ensure motors are stopped
-    leftMotors.move(0);
-    rightMotors.move(0);
+    leftMotors.brake();
+    rightMotors.brake();
 }

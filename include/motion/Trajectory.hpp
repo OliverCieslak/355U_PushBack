@@ -110,9 +110,15 @@ struct Waypoint {
     /**
      * @brief Construct a new Waypoint
      * 
+     * NOTE: Despite earlier comments, throughout the current codebase all internal trajectory math
+     * (cos/sin usage, pose orientation, odometry) uses STANDARD mathematical orientation
+     * (0 deg = +X (east), +CCW positive). Poses you pass to TrajectoryGenerator::generateTrajectory
+     * therefore should already be in standard orientation. If you have a compass heading
+     * (0 deg = North, +CW), convert it first with from_cDeg().
+     * 
      * @param x X position
      * @param y Y position
-     * @param heading Robot heading in compass orientation
+     * @param heading Robot heading (STANDARD orientation angle)
      */
     Waypoint(Length x, Length y, Angle heading) 
         : x(x), y(y), heading(heading) {}
@@ -122,7 +128,7 @@ struct Waypoint {
      * 
      * @param x X position
      * @param y Y position
-     * @param heading Robot heading in compass orientation
+     * @param heading Robot heading (STANDARD orientation angle)
      * @param velocityConstraint Maximum velocity at this point
      */
     Waypoint(Length x, Length y, Angle heading, LinearVelocity velocityConstraint)

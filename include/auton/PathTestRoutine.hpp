@@ -1,7 +1,6 @@
 #pragma once
 
 #include "hardware/Motor/MotorGroup.hpp"
-#include "motion/MotionProfilerRamseteController.hpp"
 #include "motion/TrajectoryGenerator.hpp"
 #include "odometry/SkidSteerOdometry.hpp"
 #include "pros/motors.hpp"

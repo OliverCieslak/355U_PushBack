@@ -54,6 +54,9 @@ private:
 
     std::vector<units::Pose> m_path; // only x,y used; orientation optional
     std::vector<motion::TrajectoryState> m_trajStates; // optional detailed states for velocity/accel
+    size_t m_trajTimeIndex = 0; // index of last trajectory state whose timestamp <= run time
+    std::vector<Length> m_cumulativeLengths; // cumulative path lengths per waypoint
+    Length m_totalPathLength = 0_in;
     Length m_lookahead;
     LinearVelocity m_cruiseVelocity;
     Length m_waypointTolerance;
@@ -61,6 +64,13 @@ private:
     bool m_isFollowing = false;
     int m_lastClosestIndex = 0;
     bool m_reversed = false; // drive backwards along path if true
+    bool m_requireFinalHeading = false; // optional heading enforcement
+    units::Pose m_lastPose; // for velocity estimation
+    // Per-run state
+    Time m_runTime = 0_sec;
+    Length m_lastDistEnd = 0_in;
+    int m_distIncreasingCount = 0;
+    units::Pose m_lastPoseForSpeed; // previous pose for speed calc
     // Stanley parameters
     Number m_stanleyGain = Number(0.0);
     LinearVelocity m_stanleySoftening = 1_inps; // avoids division by zero at low speeds
@@ -70,6 +80,9 @@ private:
 
     int findClosestSegmentIndex(const units::Pose& current);
     bool computeLookaheadPoint(const units::Pose& current, units::Pose& outTarget);
+    Length computePathProgress(const units::Pose& current, int segIndex, Length& alongDistToEnd);
+public:
+    void setRequireFinalHeading(bool require) { m_requireFinalHeading = require; }
 };
 
 } // namespace motion

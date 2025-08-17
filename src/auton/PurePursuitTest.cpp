@@ -15,14 +15,15 @@ void purePursuitTest() {
     odometrySystem.start();
 
     // Reuse full multi-turn path from ramseteTest
+    auto c = [](double deg){ return from_cDeg(deg); }; // helper
     std::vector<units::Pose> path = {
         initialPose,
-        units::Pose(-36_in, -58_in, from_cDeg(90)),
-        units::Pose(29_in, -58_in, from_cDeg(90)),
-        units::Pose(40_in, 37_in, from_cDeg(0)),
-        units::Pose(-31_in, -59_in, from_cDeg(270)),
-        units::Pose(-47_in, -58_in, from_cDeg(270)),
-        units::Pose(-47_in, 12_in, from_cDeg(180)),
+        units::Pose(-36_in, -58_in, c(90)),
+        units::Pose(29_in, -58_in, c(90)),
+        units::Pose(40_in, 37_in, c(0)),
+        units::Pose(-31_in, -59_in, c(270)),
+        units::Pose(-47_in, -58_in, c(270)),
+        units::Pose(-47_in, 12_in, c(180)),
     };
 
     // Drive configuration (mirror RamseteTest setup)
@@ -50,5 +51,7 @@ void purePursuitTest() {
     pp.setPath(path);
     pp.followPath(false, driveReversed);
 
-    printf("Pure pursuit test completed\n");
+    auto endPose = odometrySystem.getPose();
+    printf("Pure pursuit test completed endPose x=%.2f y=%.2f hStd=%.1f hComp=%.1f\n",
+        to_in(endPose.x), to_in(endPose.y), to_stDeg(endPose.orientation), to_cDeg(endPose.orientation));
 }

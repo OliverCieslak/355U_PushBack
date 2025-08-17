@@ -216,28 +216,30 @@ std::vector<TrajectoryState> TrajectoryGenerator::timeParameterizeTrajectory(
         timeStates[i].velocity = config.reversed ? -maxVelocities[i] : maxVelocities[i];
     }
     
-    // Calculate timestamps and accelerations
+    // Calculate timestamps, accelerations, and cumulative distance field
     Time currentTime = 0_sec;
     timeStates[0].timestamp = currentTime;
+    // Assign cumulative distance
+    for (size_t i=0;i<timeStates.size();++i) {
+        // distances vector already holds cumulative distances
+        timeStates[i].distance = distances[i];
+    }
     
     for (size_t i = 1; i < states.size(); i++) {
         Length ds = distances[i] - distances[i-1];
         LinearVelocity avgVelocity = (timeStates[i-1].velocity + timeStates[i].velocity) / 2.0;
-        
-        if (units::abs(avgVelocity) < .01_inps) {
-            // Avoid division by zero
-            currentTime += 0.001_sec;
+        LinearVelocity absAvg = units::abs(avgVelocity);
+        if (absAvg < .01_inps) {
+            // Avoid division by zero; assume small time step
+            currentTime += 1_msec;
         } else {
-            currentTime += ds / avgVelocity;
+            currentTime += ds / absAvg; // use magnitude so time always increases
         }
-        
         timeStates[i].timestamp = currentTime;
-        
-        // Calculate acceleration
+        // Calculate acceleration sign properly using actual velocity change over positive dt
         Time dt = timeStates[i].timestamp - timeStates[i-1].timestamp;
-        if (dt < 8_msec) {
-            // Points are too close in time
-            timeStates[i].acceleration = timeStates[i-1].acceleration;
+        if (dt < 1_msec) {
+            timeStates[i].acceleration = 0_inps2;
         } else {
             timeStates[i].acceleration = (timeStates[i].velocity - timeStates[i-1].velocity) / dt;
         }

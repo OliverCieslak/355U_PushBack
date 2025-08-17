@@ -3,7 +3,6 @@
 #include "hardware/Motor/MotorGroup.hpp"
 #include "localization/ParticleFilter.hpp"
 #include "main.h"
-#include "motion/MotionProfilerRamseteController.hpp"
 #include "motion/TrajectoryGenerator.hpp"
 #include "odometry/SkidSteerOdometry.hpp"
 #include "pros/adi.hpp"
@@ -41,8 +40,9 @@ void autonLoadingZoneLongGoalCenterGoal();
 void autonSevenBallLongGoal();
 void autonNineBallLongGoal();
 void autonSkills();
-void ramseteTest();
 void purePursuitTest();
+void purePursuitStraightTest();
+void purePursuitSTest();
 
 void manualTurnTest();
 void manualLinearTest();
