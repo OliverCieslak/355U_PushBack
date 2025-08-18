@@ -312,12 +312,18 @@ bool PurePursuitController::update(Time dt) {
     double dy = to_in(target.y - pose.y);
     double xR =  cosH*dx + sinH*dy; // forward robot frame
     double yR = -sinH*dx + cosH*dy;
-    double xF = m_reversed ? -xR : xR; // reflected forward axis when reversing
-    double yF = yR; // cross-track error in robot frame (left +, right - if using standard frame derivation)
+    // Reversed driving: reflect forward axis only to express distance along direction-of-travel;
+    // keep lateral axis unchanged, then compensate curvature sign after computation. This preserves
+    // consistent lateral error sign (left +) relative to robot frame while still using a positive
+    // xF along motion direction when backing up.
+    double xF = m_reversed ? -xR : xR;
+    double yF = yR; // left-positive in robot frame
 
     // Pure pursuit curvature using virtual forward frame (xF,yF)
     double L = std::max(1e-3, std::hypot(xF, yF));
     double curvature = (2 * yF) / (L * L);
+    // Do NOT invert curvature here when reversed; negative linear velocity already produces
+    // the appropriate sign for omega = v * curvature when traversing the path backwards.
     // Suppress curvature near end to avoid spin (scale with remaining distance)
     if (distRemainingAlong < m_curvatureSuppressDistance && m_curvatureSuppressDistance > 0_in) {
         double denom = to_in(m_curvatureSuppressDistance);
@@ -330,7 +336,10 @@ bool PurePursuitController::update(Time dt) {
     double stanleyTerm = 0.0; // capture for logging
     double vMagForStanley = 0.0; // speed used in Stanley term denominator
     if (m_stanleyGain.internal() > 1e-6) {
-        // Cross track error is yF (lateral in virtual forward frame). Stanley adds term: delta = atan(k * e / (v + soft))
+        // Cross track error sign should match direction of travel (forward frame). When reversed,
+        // flip lateral error so positive still means "need to steer left" relative to motion.
+    double lateralErr = yF; // keep raw lateral error; reversed handling done via velocity sign only
+        // Stanley adds heading offset: delta = atan(k * e / (v + soft))
         double vMag = std::fabs(to_inps(m_manualBaseSpeed));
         // If trajectory present, prefer its instantaneous speed magnitude
         if (!m_trajStates.empty() && m_trajTimeIndex < m_trajStates.size()) {
@@ -353,9 +362,9 @@ bool PurePursuitController::update(Time dt) {
                 gainEff *= scale;
             }
         }
-        stanleyTerm = std::atan(gainEff * yF / (vMag + soft));
+    stanleyTerm = std::atan(gainEff * lateralErr / (vMag + soft));
         // Quiet zone: if close to end and nearly centered laterally, scale down Stanley to prevent oscillation
-        if (distRemainingAlong < m_stanleyQuietDistance && std::fabs(yF) < m_stanleyQuietYF) {
+    if (distRemainingAlong < m_stanleyQuietDistance && std::fabs(lateralErr) < m_stanleyQuietYF) {
             stanleyTerm *= m_stanleyQuietScale;
         }
     vMagForStanley = vMag;

@@ -59,6 +59,19 @@ void purePursuitSTest() {
     printf("purePursuitSTest endPose   x=%.2f y=%.2f hComp=%.1f\n",
         to_in(endPose.x), to_in(endPose.y), to_cDeg(endPose.orientation));
 
-    // Reverse test temporarily disabled to focus on forward trajectory quality
-    // (Re-enable after tuning dynamic lookahead & curvature smoothing.)
+    pros::delay(1000);
+    pidDriveController.turnToHeading(from_cDeg(0), 6.0);
+    // Short pause, then drive BACKWARDS along the original path to return to start
+    pros::delay(3000);
+    motion::TrajectoryConfig configRev(20_inps, 12_inps2, 40_inps2);
+    configRev.setCurvatureScale(0.6);
+    configRev.setStartVelocity(0_inps).setEndVelocity(0_inps).setReversed(true); // generate reversed wheel velocities
+    auto trajRev = motion::TrajectoryGenerator::generateTrajectory(path, configRev);
+    pp.setRequireFinalHeading(true);
+    pp.setTrajectory(trajRev);
+    // followPath second arg (reversedDrive) not needed because trajectory encodes direction
+    pp.followPath(false, false);
+    pros::delay(500);
+    auto finalPose = odometrySystem.getPose();
+    printf("purePursuitSTest returnPose (reverse drive) x=%.2f y=%.2f hComp=%.1f\n", to_in(finalPose.x), to_in(finalPose.y), to_cDeg(finalPose.orientation));
 }

@@ -330,20 +330,34 @@ std::vector<TrajectoryState> TrajectoryGenerator::timeParameterizeTrajectory(
     double maxVAllowed = to_inps(config.maxVelocity);
     double scaleFactor = config.curvatureScale;
     for (auto &s : timeStates) {
-        double vCenter = to_inps(s.velocity);      // planned center speed
-        double k = s.curvature.internal() * scaleFactor; // scaled curvature
-        double omega = vCenter * k;                // rad/s
-        // Initial wheel speeds
-        double vLeft = vCenter - omega * halfTrack;
-        double vRight = vCenter + omega * halfTrack;
-        double maxAbs = std::max(std::fabs(vLeft), std::fabs(vRight));
+        double vCenter = to_inps(s.velocity);      // signed center speed (negative when reversed)
+        double k = s.curvature.internal() * scaleFactor; // geometric curvature (unchanged by reversal)
+        double vMag = std::fabs(vCenter);
+        double omega = vMag * k; // use magnitude to derive differential component
+        // Forward-frame wheel speeds for positive vMag
+        double fwdLeft = vMag - omega * halfTrack;
+        double fwdRight = vMag + omega * halfTrack;
+        double maxAbs = std::max(std::fabs(fwdLeft), std::fabs(fwdRight));
         if (maxVAllowed > 1e-6 && maxAbs > maxVAllowed) {
-            // Reduce center speed proportionally so that the larger magnitude wheel hits the limit exactly.
             double ratio = maxVAllowed / maxAbs;
-            vCenter *= ratio;
-            omega = vCenter * k;
-            vLeft = vCenter - omega * halfTrack;
-            vRight = vCenter + omega * halfTrack;
+            vMag *= ratio;
+            omega = vMag * k;
+            fwdLeft = vMag - omega * halfTrack;
+            fwdRight = vMag + omega * halfTrack;
+        }
+        double vLeft, vRight;
+        if (vCenter >= 0) {
+            vLeft = fwdLeft;
+            vRight = fwdRight;
+        } else {
+            // When driving backward, we want a positive geometric curvature (CCW) to still
+            // produce a positive angular velocity (yaw left). Because omega = (vR - vL)/track,
+            // simply negating both wheels would invert the sign (vR more negative than vL).
+            // Swap the differential when negating so that (vR - vL) retains its forward sign.
+            // Example: forward fwdLeft=10, fwdRight=14 -> CCW (vR>vL). Reverse mapping:
+            // vLeft=-14, vRight=-10 -> vR - vL = 4 (still CCW) while both are negative (backing).
+            vLeft = -fwdRight;
+            vRight = -fwdLeft;
         }
         s.leftWheelVelocity = from_inps(vLeft);
         s.rightWheelVelocity = from_inps(vRight);
