@@ -1,5 +1,8 @@
 #include "motion/TrajectoryGenerator.hpp"
 
+// Forward declaration of global trackWidth (declared in CompetitionAutons.cpp or similar)
+extern Length trackWidth; // global (not in namespace motion)
+
 namespace motion {
 
 Trajectory TrajectoryGenerator::generateTrajectory(
@@ -41,7 +44,8 @@ Trajectory TrajectoryGenerator::generateTrajectory(
             double h11 = t*t*t - t*t;
             
             // Tangent vectors at endpoints (simplified approach)
-            Length tangentMagnitude = units::hypot(end.x - start.x, end.y - start.y) * 0.5;
+            // Reduce tangent magnitude to soften curves (was 0.5). Smaller factor reduces overshoot & high curvature spikes.
+            Length tangentMagnitude = units::hypot(end.x - start.x, end.y - start.y) * 0.25;
             
             // Use heading to determine tangent directions
             Angle startAngle = Angle(start.heading);
@@ -85,6 +89,77 @@ Trajectory TrajectoryGenerator::generateTrajectory(
         }
     }
     
+    // Optional smoothing pass (simple moving average) to reduce jitter in high-resolution points
+    if (pathPoints.size() > 5) {
+        std::vector<TrajectoryState> smoothed = pathPoints;
+        int window = 3; // radius 1 on each side
+        for (size_t i = 1; i + 1 < pathPoints.size(); ++i) {
+            Length sx = 0_in; Length sy = 0_in; int count = 0;
+            for (int o = -1; o <= 1; ++o) {
+                int idx = (int)i + o;
+                if (idx < 0 || idx >= (int)pathPoints.size()) continue;
+                sx += pathPoints[idx].pose.x;
+                sy += pathPoints[idx].pose.y;
+                count++;
+            }
+            smoothed[i].pose.x = sx / (double)count;
+            smoothed[i].pose.y = sy / (double)count;
+        }
+        // Recompute curvature after smoothing
+        for (size_t i = 1; i + 1 < smoothed.size(); ++i) {
+            smoothed[i].curvature = utils::calculateCurvature(smoothed[i-1].pose, smoothed[i].pose, smoothed[i+1].pose);
+        }
+        pathPoints.swap(smoothed);
+    }
+
+    // Recompute heading by integrating signed curvature (stored as 1/in) using trapezoidal rule while preserving initial heading.
+    if (pathPoints.size() >= 2) {
+        // Preserve supplied starting heading (already in pathPoints[0])
+        Angle theta = pathPoints[0].pose.orientation;
+        // Derive heading at second point via chord if curvature is extreme (noise) to stabilize start
+        Length dx1 = pathPoints[1].pose.x - pathPoints[0].pose.x;
+        Length dy1 = pathPoints[1].pose.y - pathPoints[0].pose.y;
+        if (units::abs(pathPoints[1].curvature) > 0.75_radpm) {
+            theta = units::atan2(dy1, dx1);
+            pathPoints[1].pose.orientation = theta;
+        }
+        double prevK = pathPoints[1].curvature.internal();
+        for (size_t i = 2; i < pathPoints.size(); ++i) {
+            Length dx = pathPoints[i].pose.x - pathPoints[i-1].pose.x;
+            Length dy = pathPoints[i].pose.y - pathPoints[i-1].pose.y;
+            Length ds = units::hypot(dx, dy);
+            double dsIn = to_in(ds);
+            double k = pathPoints[i].curvature.internal();
+            double kAvg = 0.5 * (k + prevK);
+            double dTheta = kAvg * dsIn;
+            theta += from_stRad(dTheta);
+            pathPoints[i].pose.orientation = units::constrainAngle180(theta);
+            prevK = k;
+        }
+        // After integration, adjust orientation so the final heading matches the user-specified final waypoint heading.
+        // This prevents large unexpected heading offsets (e.g. ending at -60 compass when final waypoint requested 0 compass).
+        Angle desiredFinal = waypoints.back().toPose().orientation; // waypoint final heading (already user-specified)
+        Angle currentFinal = pathPoints.back().pose.orientation;
+        Angle delta = units::constrainAngle180(desiredFinal - currentFinal);
+        if (units::abs(delta) > from_stDeg(1.0)) {
+            // Distribute correction proportionally along the path length so it is gradual, not a last-segment pivot.
+            std::vector<Length> cum; cum.reserve(pathPoints.size());
+            Length accumLen = 0_in; cum.push_back(accumLen);
+            for (size_t i=1;i<pathPoints.size();++i) {
+                Length ddx = pathPoints[i].pose.x - pathPoints[i-1].pose.x;
+                Length ddy = pathPoints[i].pose.y - pathPoints[i-1].pose.y;
+                accumLen += units::hypot(ddx, ddy);
+                cum.push_back(accumLen);
+            }
+            Length totalLen = accumLen <= 1e-6_in ? 1_in : accumLen;
+            for (size_t i=1;i<pathPoints.size();++i) { // keep starting heading unchanged
+                double frac = to_in(cum[i]) / to_in(totalLen);
+                Angle adj = delta * frac;
+                pathPoints[i].pose.orientation = units::constrainAngle180(pathPoints[i].pose.orientation + adj);
+            }
+        }
+    }
+
     // Add final waypoint
     TrajectoryState finalState;
     finalState.pose = waypoints.back().toPose();
@@ -99,6 +174,10 @@ Trajectory TrajectoryGenerator::generateTrajectory(
         finalState.curvature = 0_radpm;
     }
     
+    // Final state's orientation exactly equals the user-specified final waypoint heading (already applied to pathPoints via adjustment above).
+    if (pathPoints.size() >= 2) {
+        finalState.pose.orientation = waypoints.back().toPose().orientation;
+    }
     pathPoints.push_back(finalState);
     
     // Time parameterize the trajectory
@@ -243,6 +322,31 @@ std::vector<TrajectoryState> TrajectoryGenerator::timeParameterizeTrajectory(
         } else {
             timeStates[i].acceleration = (timeStates[i].velocity - timeStates[i-1].velocity) / dt;
         }
+    }
+
+    // Precompute wheel velocities respecting curvatureScale: reduce center velocity if differential would exceed max.
+    Length tw = ::trackWidth; // use global definition
+    double halfTrack = to_in(tw) / 2.0;
+    double maxVAllowed = to_inps(config.maxVelocity);
+    double scaleFactor = config.curvatureScale;
+    for (auto &s : timeStates) {
+        double vCenter = to_inps(s.velocity);      // planned center speed
+        double k = s.curvature.internal() * scaleFactor; // scaled curvature
+        double omega = vCenter * k;                // rad/s
+        // Initial wheel speeds
+        double vLeft = vCenter - omega * halfTrack;
+        double vRight = vCenter + omega * halfTrack;
+        double maxAbs = std::max(std::fabs(vLeft), std::fabs(vRight));
+        if (maxVAllowed > 1e-6 && maxAbs > maxVAllowed) {
+            // Reduce center speed proportionally so that the larger magnitude wheel hits the limit exactly.
+            double ratio = maxVAllowed / maxAbs;
+            vCenter *= ratio;
+            omega = vCenter * k;
+            vLeft = vCenter - omega * halfTrack;
+            vRight = vCenter + omega * halfTrack;
+        }
+        s.leftWheelVelocity = from_inps(vLeft);
+        s.rightWheelVelocity = from_inps(vRight);
     }
     
     return timeStates;

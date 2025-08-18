@@ -153,15 +153,31 @@ Length calculateExpectedDistance(const units::Pose& robotPose, const units::Pose
         const units::Pose& currentPose,
         const units::Pose& nextPose
     ) {
-        Length a = units::hypot(nextPose.x - currentPose.x, nextPose.y - currentPose.y);
-        Length b = units::hypot(prevPose.x - nextPose.x, prevPose.y - nextPose.y);
-        Length c = units::hypot(prevPose.x - currentPose.x, prevPose.y - currentPose.y);
-        Length s = (a + b + c) / 2.0;
-        Area triangleArea = units::sqrt(s * (s - a) * (s - b) * (s - c));
+        // Use circumcircle formula for magnitude and cross product sign for direction (CCW positive)
+        Length a = units::hypot(nextPose.x - currentPose.x, nextPose.y - currentPose.y); // |current->next|
+        Length b = units::hypot(prevPose.x - nextPose.x, prevPose.y - nextPose.y);       // |next->prev|
+        Length c = units::hypot(prevPose.x - currentPose.x, prevPose.y - currentPose.y); // |prev->current|
         if (a < 0.001_in || b < 0.001_in || c < 0.001_in) {
             return 0_radpm;
         }
-        return Curvature(4.0 * triangleArea / (a * b * c));
+        Length s = (a + b + c) / 2.0;
+        Area triangleArea = units::sqrt(s * (s - a) * (s - b) * (s - c));
+        if (triangleArea < 1e-6_in2) return 0_radpm;
+    // Raw magnitude using lengths in inches -> store directly as 1/in (treat internal units consistently with other code paths)
+    Curvature mag = Curvature(4.0 * triangleArea / (a * b * c));
+        // Determine sign via z-component of cross((current-prev),(next-current))
+        double x1 = to_in(currentPose.x - prevPose.x);
+        double y1 = to_in(currentPose.y - prevPose.y);
+        double x2 = to_in(nextPose.x - currentPose.x);
+        double y2 = to_in(nextPose.y - currentPose.y);
+        double cross = x1 * y2 - y1 * x2; // >0 => CCW turn
+        if (cross < 0) mag = Curvature(-mag.internal());
+        // Clamp unrealistically large curvature (degenerate tiny triangles) to prevent numerical blow-up
+        const double maxCurv = 1.5; // 1/in -> min turn radius ~0.67 in (already very tight)
+        if (std::fabs(mag.internal()) > maxCurv) {
+            mag = Curvature((mag.internal() > 0 ? 1 : -1) * maxCurv);
+        }
+        return mag;
     }
 
 } // namespace utils

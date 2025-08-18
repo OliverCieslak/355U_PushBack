@@ -410,6 +410,8 @@ void autonomous()
 {
 	// Read the file /usd/rd_auton.txt and print the contents to the console
 	std::cout << "Autonomous mode started" << std::endl;
+	// Capture start time for autonomous routine execution
+	uint32_t autonStartMs = pros::millis();
 	topColorSortingSensor.set_led_pwm(100); // Ensure the sensor is active
 
 	if(allianceColor != AllianceColor::BLUE && allianceColor == AllianceColor::RED) {
@@ -429,6 +431,12 @@ void autonomous()
 	}
 
 	selector.run_auton();
+
+	// Compute and report total autonomous execution time
+	uint32_t autonEndMs = pros::millis();
+	uint32_t elapsedMs = autonEndMs - autonStartMs;
+	double elapsedSec = elapsedMs / 1000.0;
+	std::cout << "Autonomous routine completed in " << elapsedMs << " ms (" << elapsedSec << " s)" << std::endl;
 }
 
 /**

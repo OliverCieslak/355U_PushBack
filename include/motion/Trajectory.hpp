@@ -16,6 +16,8 @@ struct TrajectoryState {
     Curvature curvature = 0_radpm;
     LinearVelocity velocity = 0_inps;
     LinearAcceleration acceleration = 0_inps2;
+    LinearVelocity leftWheelVelocity = 0_inps;  // optional precomputed wheel velocities
+    LinearVelocity rightWheelVelocity = 0_inps; // optional precomputed wheel velocities
     Time timestamp = 0_msec;
     Length distance = 0_in; // Cumulative distance traveled from trajectory start
 

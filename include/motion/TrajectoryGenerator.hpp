@@ -19,6 +19,8 @@ struct TrajectoryConfig {
     bool reversed = false;
     LinearVelocity startVelocity = 0_mps;
     LinearVelocity endVelocity = 0_mps;
+    // Optional curvature scaling factor ( <1 to soften, >1 to exaggerate ). Default 1.0.
+    double curvatureScale = 1.0;
 
     /**
      * @brief Construct a trajectory configuration
@@ -70,6 +72,10 @@ struct TrajectoryConfig {
      */
     TrajectoryConfig& setMaxCentripetalAcceleration(LinearAcceleration acceleration) {
         this->maxCentripetalAcceleration = acceleration;
+        return *this;
+    }
+    TrajectoryConfig& setCurvatureScale(double scale) {
+        this->curvatureScale = scale;
         return *this;
     }
 };

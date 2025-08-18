@@ -39,7 +39,7 @@ void purePursuitTest() {
         rightMotors,
         driveConfig,
         [](){ return odometrySystem.getPose(); },
-        8_in, 12_inps, 1.5_in
+        8_in, 1.5_in
     );
 
     // Optional Stanley blending (light correction)

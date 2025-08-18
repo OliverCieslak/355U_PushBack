@@ -150,7 +150,6 @@ void runPathTest() {
         driveConfig,
         poseProvider,
         8_in,  // lookahead
-        12_inps, // cruise velocity fallback
         2_in   // tolerance
     );
     pp.setStanleyGains(Number(0.3), 2_inps, Number(1.0));

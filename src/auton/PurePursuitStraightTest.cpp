@@ -35,7 +35,7 @@ void purePursuitStraightTest() {
         rightMotors,
         driveConfig,
         [](){ return odometrySystem.getPose(); },
-        8_in, 12_inps, 1.5_in
+        8_in, 1.5_in
     );
 
     pp.setStanleyGains(Number(0.3), 2_inps, Number(1.0));
