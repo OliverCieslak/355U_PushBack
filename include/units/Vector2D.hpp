@@ -282,7 +282,7 @@ template <isQuantity Q> constexpr Vector2D<Q> operator*(double lhs, const Vector
 typedef Vector2D<Length> V2Position;
 typedef Vector2D<LinearVelocity> V2Velocity;
 typedef Vector2D<LinearAcceleration> V2Acceleration;
-typedef Vector2D<Force> V2Force;
+//typedef Vector2D<Force> V2Force;
 
 } // namespace units
 

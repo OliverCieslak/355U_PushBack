@@ -680,7 +680,7 @@ NEW_UNIT(Curvature, radpm, 0, -1, 0, 0, 0, 0, 0, 0);
 
 NEW_UNIT(Inertia, kgm2, 1, 2, 0, 0, 0, 0, 0, 0)
 
-NEW_UNIT(Force, N, 1, 1, -2, 0, 0, 0, 0, 0)
+//NEW_UNIT(Force, N, 1, 1, -2, 0, 0, 0, 0, 0)
 
 NEW_UNIT(Torque, Nm, 1, 2, -2, 0, 0, 0, 0, 0)
 

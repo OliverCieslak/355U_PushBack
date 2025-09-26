@@ -67,7 +67,7 @@ void intakeAntiStallColorSort()
         AllianceColor lowColor = lowballColor();
         if (topColor != AllianceColor::OFF || lowColor != AllianceColor::OFF) {
             if((int)topColor != (int)(int)colorSortState || (int)lowColor != (int) colorSortState) {
-                actualSnailState = SnailState::INTAKE_TO_BASKET;
+                actualSnailState = SnailState::Long;
             }
         }
     }
@@ -87,31 +87,31 @@ void intakeAntiStallColorSort()
     {
         case SnailState::OFF:
 			firstStageIntake.move(0);
-			basketMotor.move(0);
+			tophood.move(0);
 			secondStageIntake.move(0);
-            basketChain.move(0.0);
+            
             break;
-        case SnailState::INTAKE_TO_BASKET:
-			basketChain.move(conveyorSpin);
-			basketMotor.move(-1.0);
-			secondStageIntake.move(1.0);
-            firstStageIntake.move(-1.0);
-            break;
-        case SnailState::SCORE_LOWER_CENTER:
-			basketChain.move(conveyorSpin);
-			basketMotor.move(-1.0);
-			secondStageIntake.move(-1.0);
-            firstStageIntake.move(1.0);
-            break;
-        case SnailState::SCORE_UPPER_CENTER:
-			basketChain.move(conveyorSpin);
-			basketMotor.move(0.0);
+        case SnailState::Index:
+			
+			tophood.move(0.0);
 			secondStageIntake.move(0.0);
             firstStageIntake.move(-1.0);
             break;
-        case SnailState::SCORE_LONG_GOAL:
-			basketChain.move(conveyorSpin);
-			basketMotor.move(1.0);
+        case SnailState::Out:
+			
+			tophood.move(-1.0);
+			secondStageIntake.move(-1.0);
+            firstStageIntake.move(1.0);
+            break;
+        case SnailState::Middle:
+			
+			tophood.move(-1.0);
+			secondStageIntake.move(1.0);
+            firstStageIntake.move(-1.0);
+            break;
+        case SnailState::Long:
+			
+			tophood.move(1.0);
 			secondStageIntake.move(1.0);
             firstStageIntake.move(-1.0);
             break;

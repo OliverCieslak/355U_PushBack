@@ -180,6 +180,7 @@ public:
         units::Pose targetPose,
         Number maxVoltage = 12.0,
         Time timeout = 10_sec,
+        bool reversed = false,
         bool waitUntilSettled = true
     );
 
@@ -200,6 +201,7 @@ public:
         const Point& targetPoint,
         Number maxVoltage = 12.0,
         Time timeout = 10_sec,
+        bool reversed = false,
         bool waitUntilSettled = true
     );
 
@@ -410,6 +412,8 @@ private:
     bool m_prevSameSide = false;
     Number m_prevLateralOutput = 0.0;
     Number m_prevAngularOutput = 0.0;
+    // POINT mode reverse flag
+    bool m_pointReversed = false;
     
     /**
      * @brief Check if the linear motion is settled

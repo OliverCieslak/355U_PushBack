@@ -18,6 +18,7 @@ void runOdomTest()
   printf("Running odometry test...\n");
   odometrySystem.resetPose(units::Pose(0_in, 0_in, 0_cDeg));
   printf("Started odom....\n");
+  odometrySystem.start();
   Time startTime = from_msec(pros::millis());
   Time testDuration = 15_sec;
 

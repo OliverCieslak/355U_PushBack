@@ -5,14 +5,14 @@
 #include "antistall/AntistallMotor.hpp"
 
 extern antistall::AntistallMotor firstStageIntake;
-extern antistall::AntistallMotor basketMotor;
+extern antistall::AntistallMotor tophood;
 
 //extern lemlib::Motor firstStageIntake;
 //extern lemlib::Motor SecondStageIntake;
 //extern lemlib::Motor basketChain;
 //extern antistall::AntistallMotor basketMotor;
 extern antistall::AntistallMotor secondStageIntake;
-extern antistall::AntistallMotor basketChain;
+
 
 
 extern double conveyorSpin;
@@ -33,10 +33,10 @@ extern ConveyorState conveyorState;
 
 enum class SnailState {
     OFF,
-    INTAKE_TO_BASKET,
-    SCORE_LOWER_CENTER,
-    SCORE_UPPER_CENTER,
-    SCORE_LONG_GOAL,
+    Index,
+    Out,
+    Middle,
+    Long,
 };
 extern SnailState snailState;
 enum class AllianceColor {

@@ -1,171 +1,185 @@
 #include "auton/CompetitionAutons.hpp"
+#include "motion/PurePursuitController.hpp"
+#include "motion/TrajectoryGenerator.hpp"
+#include "units/Pose.hpp"
+#include "units/Angle.hpp"
+#include "control/DifferentialDriveConfig.hpp"
+#include "main.h"
 
-void autonCenterGoalOnly()
+void autonFourBallLongGoal()
 {
-    units::Pose initialPose = (autonStartingPosition == LeftOrRight::LEFT) ? units::Pose(-57_in, 12_in, 90_cDeg)
-                                                                           : units::Pose(-57_in, -12_in, -90_cDeg);
+    allianceColor = AllianceColor::BLUE; // Hardcoded for now, eventually set with selector
+    // autonStartingPosition = LeftOrRight::LEFT; // Set the starting position for this auton
+    // We flip the sign of the starting X coordinate based on Alliance Color
+    float xCoordMultiplier = (allianceColor == AllianceColor::BLUE) ? -1.0 : 1.0;
+    float yCoordMultiplier = 1.0; 
+    if (autonStartingPosition == LeftOrRight::RIGHT && allianceColor == AllianceColor::BLUE)
+    {
+        yCoordMultiplier = -1.0;
+    }
+    else if (autonStartingPosition == LeftOrRight::LEFT && allianceColor == AllianceColor::RED)
+    {
+        yCoordMultiplier = -1.0;
+    }
+    Length x_start = 48_in * xCoordMultiplier;
+    // We flip the sign of the starting Y coordinate based on Starting Position (Left/Right)
+    Length y_start = 12_in * yCoordMultiplier;
+    // We flip the sign of the starting heading based on Starting Position (Left/Right) and Alliance
+    float heading_start = 90;
+    float heading_multiplier = 1.0;
+    if (allianceColor == AllianceColor::RED)
+    {
+        heading_multiplier = -1.0;
+    }
+    units::Pose initialPose = units::Pose(x_start, y_start, from_cDeg(heading_start * heading_multiplier));
     odometrySystem.resetPose(initialPose);
     odometrySystem.start();
-    // autonStartingPosition = LeftOrRight::RIGHT; // Set the starting position for this auton
-    snailState = SnailState::INTAKE_TO_BASKET;
-    pidDriveController.driveDistance(22_in, 5.0, 2_sec, true);
 
-    if (autonStartingPosition == LeftOrRight::LEFT)
+    // Capture and print odometry starting pose after reset
     {
-        pidDriveController.turnAngle(-120_stDeg, 6.0, 3_sec, true); // Turn towards the center goal
-    }
-    else
-    {
-        pidDriveController.turnAngle(120_stDeg, 5.0, 3_sec, true); // Turn towards the center goal
+        auto startPose = odometrySystem.getPose();
+        printf("startPose x=%.2f y=%.2f hStd=%.1f hComp=%.1f\n",
+            to_in(startPose.x), to_in(startPose.y), to_stDeg(startPose.orientation), to_cDeg(startPose.orientation));
     }
 
-    pidDriveController.driveDistance(17_in, 4.0, 4_sec, true); // Drive forward to the center goal
-    pidDriveController.driveDistance(10_in, 2.0, 4_sec, true);
-    pros::delay(200); // Intake to basket
+    snailState = SnailState::Index; // Only the first stage on
+    control::BoomerangPathConfig pathConfig(0.7, false);
+    pidDriveController.driveToPoseBoomerang(
+        units::Pose(17_in * xCoordMultiplier, 31_in * yCoordMultiplier, from_cDeg(265 * heading_multiplier)),
+        pathConfig,
+        8.0,
+        4_sec,
+        true
+    ); // Drive to the 3 balls
 
-    if (autonStartingPosition == LeftOrRight::LEFT)
     {
-        pidDriveController.turnAngle(20_stDeg, 5.0, 3_sec, true);
-    }
-    else
-    {
-        pidDriveController.turnAngle(-20_stDeg, 3.0, 3_sec, true);
-    }
-
-    pidDriveController.driveDistance(5_in, 2.0, 1_sec, true);
-    pros::delay(200);
-
-    if (autonStartingPosition == LeftOrRight::LEFT)
-    {
-        pidDriveController.turnAngle(-20_stDeg, 5.0, 3_sec, true);
-    }
-    else
-    {
-        pidDriveController.turnAngle(20_stDeg, 3.0, 3_sec, true);
+        auto curPose = odometrySystem.getPose();
+        printf("curPose   x=%.2f y=%.2f hComp=%.1f\n",
+            to_in(curPose.x), to_in(curPose.y), to_cDeg(curPose.orientation));
     }
 
-    pidDriveController.driveDistance(8_in, 2.0, 4_sec, true);
-    pros::delay(200);
+    pathConfig.lead = 0.5;
+    pathConfig.closeDistance = 2_in;
+    pidDriveController.driveToPoseBoomerang(
+        units::Pose(50_in * xCoordMultiplier, 56_in * yCoordMultiplier, from_cDeg(90 * heading_multiplier)),
+        pathConfig,
+        10.0,
+        5_sec,
+        true
+    ); // Drive to line up on the match loader
 
-    if (autonStartingPosition == LeftOrRight::LEFT)
-    {
-        // pidDriveController.turnAngle(33_stDeg, 6.0, 3_sec, true); // Turn towards the center goal
-    }
-    else
-    {
-        pidDriveController.turnAngle(-33_stDeg, 3.0, 3_sec, true); // Turn towards the center goal
-    }
+    // Lower the scraper to prepare for intake
 
-    // pidDriveController.driveDistance(10_in, 3.0, 3_sec, true); // Drive forward to the center goal
+    pidDriveController.turnToHeading(from_cDeg(90 * (allianceColor == AllianceColor::BLUE ? -1 : 1)), 8.0, 1_sec, true); // Turn to face the match loader
+    pidDriveController.driveDistance(20_in, 3.0, 2_sec, true); // Drive to the match loader
+    pros::delay(1000); // Wait to intake the balls
+    pidDriveController.driveDistance(-17_in, 6.0, 2_sec, true); // Drive to the long goal
+    snailState = SnailState::Long;
+    pros::delay(3000); // Wait to score the balls
 
-    if (autonStartingPosition == LeftOrRight::RIGHT)
-    {
-        // pidDriveController.driveDistance(3_in, 3.0, 3_sec, false);    a
-    }
+    // Ram the goal
+    pidDriveController.driveDistance(8_in, 4.0, 1_sec, true); // Drive to the match loader
+    pidDriveController.driveDistance(-12_in, 12.0, 5_sec, true); // Drive to the match loader
 
-    if (autonStartingPosition == LeftOrRight::LEFT)
-    {
-        // pidDriveController.turnAngle(-48_stDeg, 6.0, 3_sec, true); // Turn towards the center goal
-        pidDriveController.turnAngle(-14_stDeg, 6.0, 3_sec, true);
-    }
-    else
-    {
-        pidDriveController.turnAngle(55_stDeg, 3.0, 3_sec, true); // Turn towards the center goal
-    }
-    if (autonStartingPosition == LeftOrRight::LEFT)
-    {
-        pidDriveController.driveDistance(10_in, 6.0, 4_sec, true); // Drive forward to the center goal
-    }
-    else
-    {
-        pidDriveController.driveDistance(11_in, 3.0, 4_sec, true); // Drive forward to the center goal
-    }
-
-    conveyorState = ConveyorState::REVERSED; // Start conveyor to score
-    if (autonStartingPosition == LeftOrRight::RIGHT)
-    {
-        snailState = SnailState::SCORE_LOWER_CENTER;
-        // snailState = SnailState::SCORE_LOWER_CENTER;
-    }
-    else
-    {
-        snailState = SnailState::SCORE_UPPER_CENTER;
-    }
-}
-
-void autonLoadingZoneLongGoalCenterGoal()
-{
-    /*
-    // Set initial pose based on side
-    units::Pose initialPose = (autonStartingPosition == LeftOrRight::LEFT) ? units::Pose(-57_in, 12_in, 90_cDeg)
-                                                          : units::Pose(-57_in, -12_in, -90_cDeg);
-    odometrySystem.resetPose(initialPose);
-
-    // pidDriveController.turnAngle(180_stDeg, 8.0, 15_sec);
-
-    units::Pose currentPose = odometrySystem.getPose();
-    units::Pose nextPose = (autonStartingPosition == LeftOrRight::LEFT) ? units::Pose(-57_in, 40_in, 0_cDeg)
-                                             : units::Pose(24_in, 24_in, -90_cDeg);
-     pidDriveController.driveDistance(currentPose.distanceTo(nextPose), 8.0, 15_sec, true);
-
-    //pidDriveController.turnToHeading(currentPose.angleTo(nextPose), 8.0, 1_sec, true);
-    currentPose = odometrySystem.getPose();
-     nextPose = (autonStartingPosition == LeftOrRight::LEFT) ? units::Pose(-57_in, 38_in, 180_cDeg)
-                                             : units::Pose(24_in, 24_in, -90_cDeg);
-    //pidDriveController.driveDistance(currentPose.distanceTo(currentPose), 8.0, 15_sec, true);
-    //pidDriveController.turnToHeading(currentPose.angleTo(nextPose), 8.0, 5_sec, true);
-    pidDriveController.turnToHeading(180_stDeg, 8.0, 5_sec, true);
-   scraperPiston.set_value(-1); // Move scraper piston down
-        currentPose = odometrySystem.getPose();
-    nextPose = (autonStartingPosition == LeftOrRight::LEFT) ? units::Pose(-70_in, 40_in, 0_cDeg)
-                                             : units::Pose(24_in, 24_in, -90_cDeg);
-    pidDriveController.driveDistance(currentPose.distanceTo(nextPose), 16.0, 15_sec, true);
-    snailState = SnailState::INTAKE_TO_BASKET;
-    */
-
-    // skeltonfor awp
-    // run this after simple autoin
-    pidDriveController.driveDistance(25_in, 5.0, 4_sec, false); // drive backward to matchload
-
-    if (autonStartingPosition == LeftOrRight::LEFT)
-    {
-        pidDriveController.turnAngle(-135_stDeg, 5.0, 3_sec, true); // Turn towards the loading zone
-    }
-    else
-    {
-        pidDriveController.turnAngle(135_stDeg, 5.0, 3_sec, true); // Turn towards the loading zone
-    }
-
-    pidDriveController.driveDistance(15_in, 5.0, 4_sec, true); // drive to matchload
-
-    // whatever code to pick up the three balls
-
-    // drive to high goal
-
-    // outtake into high goal
+    snailState = SnailState::OFF;
 }
 
 void autonSevenBallLongGoal()
 {
     // Implement the seven ball long goal autonomous routine here
+
+    allianceColor = AllianceColor::BLUE; // Hardcoded for now, eventually set with selector
+    // autonStartingPosition = LeftOrRight::LEFT; // Set the starting position for this auton
     // We flip the sign of the starting X coordinate based on Alliance Color
-    Length x_start = (allianceColor == AllianceColor::RED) ? -57_in : 57_in;
-    // We flip the sign of the starting Y coordinate based on Starting Position (Left/Right)
-    Length y_start = (autonStartingPosition == LeftOrRight::RIGHT) ? -12_in : -12_in;
-    // We flip the sign of the starting heading based on Starting Position (Left/Right) and Alliance
-    double heading_start = 0;
+    float xCoordMultiplier = (allianceColor == AllianceColor::BLUE) ? -1.0 : 1.0;
+    float yCoordMultiplier = 1.0; 
     if (autonStartingPosition == LeftOrRight::RIGHT && allianceColor == AllianceColor::BLUE)
     {
-        heading_start = -180;
+        yCoordMultiplier = -1.0;
     }
-    if (autonStartingPosition == LeftOrRight::LEFT && allianceColor == AllianceColor::RED)
+    else if (autonStartingPosition == LeftOrRight::LEFT && allianceColor == AllianceColor::RED)
     {
-        heading_start = -180;
+        yCoordMultiplier = -1.0;
     }
-    units::Pose initialPose = units::Pose(x_start, y_start, from_cDeg(heading_start));
+    Length x_start = 48_in * xCoordMultiplier;
+    // We flip the sign of the starting Y coordinate based on Starting Position (Left/Right)
+    Length y_start = 12_in * yCoordMultiplier;
+    // We flip the sign of the starting heading based on Starting Position (Left/Right) and Alliance
+    float heading_start = 90;
+    float heading_multiplier = 1.0;
+    if (allianceColor == AllianceColor::RED)
+    {
+        heading_multiplier = -1.0;
+    }
+    units::Pose initialPose = units::Pose(x_start, y_start, from_cDeg(heading_start * heading_multiplier));
     odometrySystem.resetPose(initialPose);
     odometrySystem.start();
-    // TODO - Figure out if we should start the ParticleFilter
+
+    // Capture and print odometry starting pose after reset
+    {
+        auto startPose = odometrySystem.getPose();
+        printf("startPose x=%.2f y=%.2f hStd=%.1f hComp=%.1f\n",
+            to_in(startPose.x), to_in(startPose.y), to_stDeg(startPose.orientation), to_cDeg(startPose.orientation));
+
+        printf("Driving to %.2f, %.2f, %.2f\n", 17 * xCoordMultiplier, 31 * yCoordMultiplier, 265 * heading_multiplier);
+   }
+
+    snailState = SnailState::Index; // Only the first stage on
+    firstStageIntake.setMaxJiggleCycles(33);
+    control::BoomerangPathConfig pathConfig(0.7, false);
+    pidDriveController.driveToPoseBoomerang(
+        units::Pose(17_in * xCoordMultiplier, 31_in * yCoordMultiplier, from_cDeg(265 * heading_multiplier)),
+        pathConfig,
+        8.0,
+        4_sec,
+        true
+    ); // Drive to the 3 balls
+
+    {
+        auto curPose = odometrySystem.getPose();
+        printf("curPose   x=%.2f y=%.2f hComp=%.1f\n",
+            to_in(curPose.x), to_in(curPose.y), to_cDeg(curPose.orientation));
+    }
+
+    pathConfig.lead = 0.5;
+    pathConfig.closeDistance = 2_in;
+    pidDriveController.driveToPoseBoomerang(
+        units::Pose(50_in * xCoordMultiplier, 58_in * yCoordMultiplier, from_cDeg(90 * heading_multiplier)),
+        pathConfig,
+        10.0,
+        5_sec,
+        true
+    ); // Drive to line up on the match loader
+
+    // Lower the scraper to prepare for intake
+
+    
+
+    scraperPiston.set_value(true);
+    pidDriveController.turnToHeading(from_cDeg(90 * (allianceColor == AllianceColor::BLUE ? -1 : 1)), 8.0, 1_sec, true); // Turn to face the match loader
+    
+    pros::delay(300); 
+    snailState = SnailState::Long;
+    pidDriveController.driveDistance(22_in, 8.0, 4_sec, true); // Drive to the match loader
+
+    for(int gregory = 0; gregory < 3; gregory++) {
+        pidDriveController.driveDistance(-1_in, 7.0, 0.1_sec, true);
+        pidDriveController.driveDistance(1_in, 7.0, 0.1_sec, true);
+    }
+
+    pros::delay(500); // Wait to intake the balls
+    pidDriveController.driveDistance(-17_in, 4.0, 3_sec, true); // Drive to the long goal
+    snailState = SnailState::Long;
+    
+    HoodClose.set_value(true);
+    pros::delay(2500); // Wait to score the balls
+    snailState = SnailState::OFF;
+    firstStageIntake.setMaxJiggleCycles(3);
+
+    // Ram the goal
+    pidDriveController.driveDistance(8_in, 4.0, 1_sec, true); // Drive to the match loader
+    pidDriveController.driveDistance(-12_in, 12.0, 5_sec, true); // Drive to the match loader
+    
 }
 
 void autonNineBallLongGoal()
@@ -187,23 +201,24 @@ void autonNineBallLongGoal()
     units::Pose initialPose = units::Pose(x_start, y_start, from_cDeg(heading_start));
     odometrySystem.resetPose(initialPose);
     odometrySystem.start();
-    // TODO - Figure out if we should start the ParticleFilter
 }
 
 void manualTurnTest()
 {
-    // Implement manual turn test here
     odometrySystem.resetPose(units::Pose(0_in, 0_in, 0_cDeg));
     odometrySystem.start();
-    // pidDriveController.turnAngle(180_stDeg, 8.0, 10_sec, true);
-    pidDriveController.turnAngle(10_stDeg, 8.0, 10_sec, true);
+    pidDriveController.turnToHeading(90_cDeg, 8.0, 10_sec, true);
     units::Pose odomPose = odometrySystem.getPose();
-    std::cout << "Odom Pose after turn: (" << odomPose.x.internal() << ", " << odomPose.y.internal() << ", "
-              << to_cDeg(odomPose.orientation) << ")\n";
+    std::cout << "Odom Pose after turn: (" << to_in(odomPose.x) << ", " << to_in(odomPose.y) << ", "
+    << to_cDeg(odomPose.orientation) << ")\n";
 }
 
 void manualLinearTest()
 {
-    // Implement manual linear test here
+    odometrySystem.resetPose(units::Pose(0_in, 0_in, 0_cDeg));
     odometrySystem.start();
+    pidDriveController.driveDistance(48_in, 8.0, 10_sec, true);
+    units::Pose odomPose = odometrySystem.getPose();
+    std::cout << "Odom Pose after drive: (" << to_in(odomPose.x) << ", " << to_in(odomPose.y) << ", "
+              << to_cDeg(odomPose.orientation) << ")\n";
 }

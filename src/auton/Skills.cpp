@@ -5,68 +5,65 @@
 
 void autonSkills()
 {
-    // Implement the skills autonomous routine here
-    motion::TrajectoryConfig config(maxVelocity, maxAccel, maxCentripetalAccel);
-    control::DifferentialDriveConfig driveConfig(
-        std::max(1.0_in, trackWidth),    // Ensure non-zero track width
-        std::max(1.0_in, wheelDiameter), // Ensure non-zero wheel diameter
-        kV,
-        kA,
-        kS);
-
-
-        // Will make it START TO THE LEFT OF THE RED PARKING ZONE,
-    units::Pose initialPose = units::Pose(-60_in, -14_in, from_cDeg(90));
+    units::Pose initialPose = units::Pose(48_in, 12_in, from_cDeg(0));
     odometrySystem.resetPose(initialPose);
+    particleFilter.resetPose(initialPose);
     odometrySystem.start();
-    
-    /* We are doing generic points, will flesh out the tehcnicals later...
-        (-60,-47,270) Stops at match loader
-        (-24,-47,90) Gets to the close side of the long goal
-        (63,-47,90) Gets other side match loader
-        (24,-47,270) Gets to the other side of the long goal
-        (63,47,90) Gets to the other match load tube on the 'far' side
-        ()
-        
-    
-    
-    
-    
-    
-    
-    
-    */
+    particleFilter.start();
+    leftMotors.setBrakeMode(lemlib::BrakeMode::BRAKE);
+    rightMotors.setBrakeMode(lemlib::BrakeMode::BRAKE);
 
+    // snailState = SnailState::Index; // Only the first stage on
+    firstStageIntake.setMaxJiggleCycles(33);
 
-    
+    pidDriveController.driveDistance(33_in, 6.0, 4_sec, true); // Drive to the match loader
+    pidDriveController.turnToHeading(90_cDeg, 8.0, 2_sec, true);
+ 
+    scraperPiston.set_value(true);
+    pidDriveController.driveDistance(24_in, 5.0, 4_sec, true); // Drive to the match loader
 
+    pros::delay(2000); // Wait to intake the balls
 
+    pidDriveController.driveDistance(-36_in, 4.0, 4_sec, true); // Drive to the goal
 
+    // snailState = SnailState::Long;
+    pros::delay(2000); // Wait to intake the balls
+    snailState = SnailState::OFF;
+    scraperPiston.set_value(false);
 
+    pidDriveController.driveDistance(12_in, 10.0, 4_sec, true); // Backaway from the goal
+    pidDriveController.turnToHeading(180_cDeg, 8.0, 2_sec, true);
+    pidDriveController.driveToPoint({48_in,-52_in}, 9.0, 9_sec, false, true); // Drive to the match loader
 
-        /*
-    // Set up first movement...
-    std::vector<units::Pose> path = {
-        initialPose,
-        units::Pose(-36_in, -58_in, from_cDeg(90)),
-        /*
-        units::Pose(29_in, -58_in, from_cDeg(90)),
-        units::Pose(40_in, 37_in, from_cDeg(0)),
-        units::Pose(-31_in, -59_in, from_cDeg(270)),
-        units::Pose(-47_in, -58_in, from_cDeg(270)),
-        units::Pose(-47_in, 12_in, from_cDeg(180)),
-        
-    };
-    */
-    // Generate and follow trajectory
-    printf("Generating traj");
+    {
+        auto odomPose = odometrySystem.getPose();
+        printf("curPose   x=%.2f y=%.2f hComp=%.1f\n",
+            to_in(odomPose.x), to_in(odomPose.y), to_cDeg(odomPose.orientation));
+        auto pfPose = particleFilter.getPose();
+        printf("PF Pose   x=%.2f y=%.2f hComp=%.1f\n",
+            to_in(pfPose.x), to_in(pfPose.y), to_cDeg(pfPose.orientation));
+    }
 
-    // Measure trajectory generation time
-    uint32_t start_time = pros::micros();
+    pidDriveController.turnToHeading(90_cDeg, 8.0, 2_sec, true);
+    scraperPiston.set_value(true);
+    // snailState = SnailState::Index; // Only the first stage on
+    pidDriveController.driveDistance(12_in, 5.0, 3_sec, true); // Drive to the match loader
+    pros::delay(2000); // Wait to intake the balls
 
-    // motion::Trajectory trajectory = motion::TrajectoryGenerator::generateTrajectory(path, config);
+    pidDriveController.turnToHeading(45_cDeg, 8.0, 2_sec, true);
+    pidDriveController.driveDistance(-12_in, 5.0, 1.5_sec, true); // Back away
 
-    uint32_t end_time = pros::micros();
-    uint32_t generation_time_us = end_time - start_time;
-    double generation_time_ms = generation_time_us / 1000.0;
+    pidDriveController.turnToHeading(270_cDeg, 8.0, 2_sec, true);
+    pidDriveController.driveDistance(90_in, 7.0, 10_sec, true);  // Drive to blue side
+
+    {
+        auto odomPose = odometrySystem.getPose();
+        printf("curPose   x=%.2f y=%.2f hComp=%.1f\n",
+            to_in(odomPose.x), to_in(odomPose.y), to_cDeg(odomPose.orientation));
+        auto pfPose = particleFilter.getPose();
+        printf("PF Pose   x=%.2f y=%.2f hComp=%.1f\n",
+            to_in(pfPose.x), to_in(pfPose.y), to_cDeg(pfPose.orientation));
+    }
+    snailState = SnailState::OFF;
+     
 }

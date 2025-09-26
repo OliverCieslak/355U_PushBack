@@ -61,7 +61,7 @@ bool PIDDriveController::driveDistance(Length distance, Number maxVoltage, Time 
     return true;
 }
 
-bool PIDDriveController::driveToPoint(const Point& targetPoint, Number maxVoltage, Time timeout, bool waitUntilSettled) {
+bool PIDDriveController::driveToPoint(const Point& targetPoint, Number maxVoltage, Time timeout, bool reversed, bool waitUntilSettled) {
     // Initialize motion parameters
     m_pointTarget = targetPoint;
     m_maxVoltage = maxVoltage;
@@ -74,6 +74,7 @@ bool PIDDriveController::driveToPoint(const Point& targetPoint, Number maxVoltag
 
     // Set motion type and flags
     m_motionType = MotionType::POINT;
+    m_pointReversed = reversed;
     m_isMoving = true;
 
     // Reset controllers
@@ -138,9 +139,9 @@ bool PIDDriveController::turnAngle(Angle angle, Number maxVoltage, Time timeout,
 }
 
 // Update the existing driveToPose method
-bool PIDDriveController::driveToPose(units::Pose targetPose, Number maxVoltage, Time timeout, bool waitUntilSettled) {
+bool PIDDriveController::driveToPose(units::Pose targetPose, Number maxVoltage, Time timeout, bool reversed, bool waitUntilSettled) {
     // Use the boomerang approach with default parameters
-    return driveToPoseBoomerang(targetPose, BoomerangPathConfig(), maxVoltage, timeout, waitUntilSettled);
+    return driveToPoseBoomerang(targetPose, BoomerangPathConfig(0.5, reversed), maxVoltage, timeout, waitUntilSettled);
 }
 
 bool PIDDriveController::driveToPoseBoomerang(
@@ -307,10 +308,14 @@ bool PIDDriveController::update(Time dt) {
 
             // Errors
             Length linearError = distanceToTarget; // want to reduce to zero
-            Angle angularError = units::constrainAngle180(currentPose.orientation - headingToTarget);
+            // If reversing, align the robot's back toward the target by adding 180 deg to current orientation
+            Angle adjustedOrientation = m_pointReversed ? (currentPose.orientation + 180_stDeg) : currentPose.orientation;
+            Angle angularError = units::constrainAngle180(adjustedOrientation - headingToTarget);
 
             // PID outputs
             Number linearOutput = m_linearController.calculate(0, to_in(linearError), to_msec(m_elapsedTime));
+            // Enforce motion direction: negative when reversing, positive otherwise
+            linearOutput = m_pointReversed ? -std::abs(linearOutput) : std::abs(linearOutput);
             Number headingCorrection = m_angularController.calculate(to_stDeg(angularError), 0, to_msec(m_elapsedTime));
 
             // Add sign-aware static feedforward to heading correction

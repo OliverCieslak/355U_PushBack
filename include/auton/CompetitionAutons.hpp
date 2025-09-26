@@ -10,6 +10,7 @@
 #include "units/units.hpp"
 #include "units/Pose.hpp"
 
+
 #pragma once
 
 enum class LeftOrRight {
@@ -28,15 +29,15 @@ extern LinearVelocity maxVelocity;
 extern LinearAcceleration maxAccel;
 extern LinearAcceleration maxCentripetalAccel;
 extern control::PIDDriveController pidDriveController;
+extern control::PIDDriveController pidPfDriveController;
 extern odometry::SkidSteerOdometry odometrySystem;
 extern localization::ParticleFilter particleFilter;
 extern LeftOrRight autonStartingPosition;
 extern pros::ADIDigitalOut scraperPiston;
 extern lemlib::MotorGroup leftMotors;
 extern lemlib::MotorGroup rightMotors;
-
-void autonCenterGoalOnly();
-void autonLoadingZoneLongGoalCenterGoal();
+extern pros::ADIDigitalOut HoodClose;
+void autonFourBallLongGoal();
 void autonSevenBallLongGoal();
 void autonNineBallLongGoal();
 void autonSkills();
