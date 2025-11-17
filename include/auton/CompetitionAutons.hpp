@@ -1,4 +1,4 @@
-#include "auton/AntiStallColorSort.hpp"
+#include "auton/IntakeAndPistonState.hpp"
 #include "control/PIDDriveController.hpp"
 #include "hardware/Motor/MotorGroup.hpp"
 #include "localization/ParticleFilter.hpp"
@@ -34,9 +34,11 @@ extern odometry::SkidSteerOdometry odometrySystem;
 extern localization::ParticleFilter particleFilter;
 extern LeftOrRight autonStartingPosition;
 extern pros::ADIDigitalOut scraperPiston;
+extern pros::ADIDigitalOut Wing;
+
 extern lemlib::MotorGroup leftMotors;
 extern lemlib::MotorGroup rightMotors;
-extern pros::ADIDigitalOut HoodClose;
+extern pros::ADIDigitalOut Middle_Goal;
 void autonFourBallLongGoal();
 void autonSevenBallLongGoal();
 void autonNineBallLongGoal();

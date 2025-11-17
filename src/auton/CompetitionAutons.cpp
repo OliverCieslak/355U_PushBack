@@ -8,11 +8,11 @@
 
 void autonFourBallLongGoal()
 {
-    allianceColor = AllianceColor::BLUE; // Hardcoded for now, eventually set with selector
+    /*//allianceColor = AllianceColor::BLUE; // Hardcoded for now, eventually set with selector
     // autonStartingPosition = LeftOrRight::LEFT; // Set the starting position for this auton
     // We flip the sign of the starting X coordinate based on Alliance Color
-    float xCoordMultiplier = (allianceColor == AllianceColor::BLUE) ? -1.0 : 1.0;
-    float yCoordMultiplier = 1.0; 
+    //loat xCoordMultiplier = (allianceColor == AllianceColor::BLUE) ? -1.0 : 1.0;
+    //float yCoordMultiplier = 1.0; 
     if (autonStartingPosition == LeftOrRight::RIGHT && allianceColor == AllianceColor::BLUE)
     {
         yCoordMultiplier = -1.0;
@@ -81,39 +81,61 @@ void autonFourBallLongGoal()
     pidDriveController.driveDistance(8_in, 4.0, 1_sec, true); // Drive to the match loader
     pidDriveController.driveDistance(-12_in, 12.0, 5_sec, true); // Drive to the match loader
 
-    snailState = SnailState::OFF;
+    snailState = SnailState::OFF;*/
 }
 
 void autonSevenBallLongGoal()
 {
     // Implement the seven ball long goal autonomous routine here
 
-    allianceColor = AllianceColor::BLUE; // Hardcoded for now, eventually set with selector
+   
+    
+
+    //allianceColor = AllianceColor::BLUE; // Hardcoded for now, eventually set with selector
     // autonStartingPosition = LeftOrRight::LEFT; // Set the starting position for this auton
     // We flip the sign of the starting X coordinate based on Alliance Color
-    float xCoordMultiplier = (allianceColor == AllianceColor::BLUE) ? -1.0 : 1.0;
-    float yCoordMultiplier = 1.0; 
+   // float xCoordMultiplier = 0.0;
+   
+    //We change these values to select the auton before a match
+    //allianceColor = AllianceColor::BLUE; autonStartingPosition = LeftOrRight::LEFT; //Blue Left
+    //allianceColor = AllianceColor::BLUE; autonStartingPosition = LeftOrRight::RIGHT; //Blue Right
+    //allianceColor = AllianceColor::RED; autonStartingPosition = LeftOrRight::LEFT; //Red Right
+   // allianceColor = AllianceColor::RED; autonStartingPosition = LeftOrRight::RIGHT; //RED Left
+    //float xCoordMultiplier = -1.0; float yCoordMultiplier =  1.0; float heading_multiplier = 1.0; // blue left
+    float xCoordMultiplier = -1.0; float yCoordMultiplier = -1.0; float heading_multiplier = 1.0; // blue right
+    //float xCoordMultiplier = 1.0; float yCoordMultiplier = -1.0; float heading_multiplier = -1.0; // red left 
+    //float xCoordMultiplier = 1.0; float yCoordMultiplier = 1.0; float heading_multiplier = -1.0; // red right
+    //float xCoordMultiplier = (allianceColor == AllianceColor::BLUE) ? -1.0 : 1.0;
+    // blue left: (-1,1), blue right: (-1,-1), red left (1,-1), red right (1,1)
+    /*float yCoordMultiplier = 1.0; 
     if (autonStartingPosition == LeftOrRight::RIGHT && allianceColor == AllianceColor::BLUE)
     {
-        yCoordMultiplier = -1.0;
+        float yCoordMultiplier = -1.0;
     }
     else if (autonStartingPosition == LeftOrRight::LEFT && allianceColor == AllianceColor::RED)
     {
-        yCoordMultiplier = -1.0;
+        float yCoordMultiplier = -1.0;
     }
-    Length x_start = 48_in * xCoordMultiplier;
+    */
+    //allianceColor = AllianceColor::BLUE;
+    //auto autonStartingPosition = LeftOrRight::LEFT; // Hardcoded for now, eventually set with selector
+    Length x_start = 48_in * xCoordMultiplier; 
     // We flip the sign of the starting Y coordinate based on Starting Position (Left/Right)
-    Length y_start = 12_in * yCoordMultiplier;
+    Length y_start = 12_in * yCoordMultiplier; 
     // We flip the sign of the starting heading based on Starting Position (Left/Right) and Alliance
     float heading_start = 90;
-    float heading_multiplier = 1.0;
-    if (allianceColor == AllianceColor::RED)
+    //float heading_multiplier = 1.0;
+    /*if (allianceColor == AllianceColor::RED)
     {
         heading_multiplier = -1.0;
-    }
+    }*/
+    //heading_multiplier = -1.0;
+
     units::Pose initialPose = units::Pose(x_start, y_start, from_cDeg(heading_start * heading_multiplier));
     odometrySystem.resetPose(initialPose);
     odometrySystem.start();
+
+    //Middle_Goal.set_value(!MiddleState);
 
     // Capture and print odometry starting pose after reset
     {
@@ -128,9 +150,9 @@ void autonSevenBallLongGoal()
     firstStageIntake.setMaxJiggleCycles(33);
     control::BoomerangPathConfig pathConfig(0.7, false);
     pidDriveController.driveToPoseBoomerang(
-        units::Pose(17_in * xCoordMultiplier, 31_in * yCoordMultiplier, from_cDeg(265 * heading_multiplier)),
+        units::Pose(17_in * xCoordMultiplier, 36_in * yCoordMultiplier, from_cDeg(265 * heading_multiplier)),
         pathConfig,
-        8.0,
+        7.0,
         4_sec,
         true
     ); // Drive to the 3 balls
@@ -144,42 +166,50 @@ void autonSevenBallLongGoal()
     pathConfig.lead = 0.5;
     pathConfig.closeDistance = 2_in;
     pidDriveController.driveToPoseBoomerang(
-        units::Pose(50_in * xCoordMultiplier, 58_in * yCoordMultiplier, from_cDeg(90 * heading_multiplier)),
+        units::Pose(52_in * xCoordMultiplier, 64_in * yCoordMultiplier, from_cDeg(90 * heading_multiplier)),
         pathConfig,
         10.0,
-        5_sec,
+        4_sec,
         true
+    
     ); // Drive to line up on the match loader
 
     // Lower the scraper to prepare for intake
 
     
 
-    scraperPiston.set_value(true);
-    pidDriveController.turnToHeading(from_cDeg(90 * (allianceColor == AllianceColor::BLUE ? -1 : 1)), 8.0, 1_sec, true); // Turn to face the match loader
+    scraperPiston.set_value(true); 
+    pidDriveController.turnToHeading(from_cDeg(90 * xCoordMultiplier), 8.0, 1_sec, true); // Turn to face the match loader
     
     pros::delay(300); 
-    snailState = SnailState::Long;
-    pidDriveController.driveDistance(22_in, 8.0, 4_sec, true); // Drive to the match loader
+    //pidDriveController.driveDistance(4_in, 8.0, 1_sec, true); 
+    //pidDriveController.turnToHeading(from_cDeg(80 * (allianceColor == AllianceColor::BLUE ? -1 : 1)), 8.0, 1_sec, true); //josh
+    //snailState = SnailState::Long; 
+    pidDriveController.driveDistance(27_in, 8.0, 1.5_sec, true); // Drive to the match loader 
+    pros::delay(500); 
 
+
+    /*
     for(int gregory = 0; gregory < 3; gregory++) {
-        pidDriveController.driveDistance(-1_in, 7.0, 0.1_sec, true);
-        pidDriveController.driveDistance(1_in, 7.0, 0.1_sec, true);
-    }
+        pidDriveController.driveDistance(-1_in, 7.0, 0.1_sec, true); 
+        pidDriveController.driveDistance(1_in, 7.0, 0.1_sec, true); 
+    } 
+    */
 
-    pros::delay(500); // Wait to intake the balls
-    pidDriveController.driveDistance(-17_in, 4.0, 3_sec, true); // Drive to the long goal
+    //pros::delay(100); // Wait to intake the balls
+    pidDriveController.turnToHeading(from_cDeg(93 * xCoordMultiplier), 6.0, 1_sec, true); //josh
+    pidDriveController.driveDistance(-20_in, 4.0, 2_sec, true);
+     pidDriveController.turnToHeading(from_cDeg(90 * xCoordMultiplier), 4.0, 1_sec, true); // Drive to the long goal
+    pidDriveController.driveDistance(8_in, 4.0, 0.5_sec, true); // Drive to the match loader
+    pidDriveController.driveDistance(-18_in, 8.0, 1_sec, true); // Drive to the match loader
     snailState = SnailState::Long;
     
-    HoodClose.set_value(true);
-    pros::delay(2500); // Wait to score the balls
+    Middle_Goal.set_value(false);
+    pros::delay(4300); // Wait to score the balls
     snailState = SnailState::OFF;
-    firstStageIntake.setMaxJiggleCycles(3);
-
-    // Ram the goal
-    pidDriveController.driveDistance(8_in, 4.0, 1_sec, true); // Drive to the match loader
-    pidDriveController.driveDistance(-12_in, 12.0, 5_sec, true); // Drive to the match loader
+    firstStageIntake.setMaxJiggleCycles(3); 
     
+    pidDriveController.driveDistance(10_in, 12.0, 1_sec, true); 
 }
 
 void autonNineBallLongGoal()

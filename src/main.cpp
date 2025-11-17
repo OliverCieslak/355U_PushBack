@@ -1,6 +1,6 @@
 #include "main.h"
 #include "antistall/AntistallMotor.hpp"
-#include "auton/AntiStallColorSort.hpp"
+#include "auton/IntakeAndPistonState.hpp"
 #include "auton/CompetitionAutons.hpp"
 #include "auton/ParticleFilterTest.hpp"
 #include "auton/PathTestRoutine.hpp"
@@ -28,12 +28,12 @@
 #include <fstream>
 #include <iostream>
 
-#define LEFT_MOTOR_1 -13
-#define LEFT_MOTOR_2 -14
-#define LEFT_MOTOR_3 -15
-#define RIGHT_MOTOR_1 17
-#define RIGHT_MOTOR_2 18
-#define RIGHT_MOTOR_3 19
+#define LEFT_MOTOR_1 -20
+#define LEFT_MOTOR_2 -19
+#define LEFT_MOTOR_3 -18
+#define RIGHT_MOTOR_1 15
+#define RIGHT_MOTOR_2 16
+#define RIGHT_MOTOR_3 14
 
 pros::Motor prosLeft1(LEFT_MOTOR_1, pros::MotorGearset::blue);
 pros::Motor prosLeft2(LEFT_MOTOR_2, pros::MotorGearset::blue);
@@ -46,31 +46,36 @@ pros::MotorGroup prosRightMotors({RIGHT_MOTOR_1, RIGHT_MOTOR_2, RIGHT_MOTOR_3}, 
 lemlib::MotorGroup leftMotors({LEFT_MOTOR_1, LEFT_MOTOR_2, LEFT_MOTOR_3}, 600_rpm);
 lemlib::MotorGroup rightMotors({RIGHT_MOTOR_1, RIGHT_MOTOR_2, RIGHT_MOTOR_3}, 600_rpm);
 
-lemlib::V5InertialSensor imu(10);
+lemlib::V5InertialSensor imu(6);
 
 // Snail motors for intake and scoring
 
-antistall::AntistallMotor secondStageIntake(-2, 200_rpm, 0.0_amp, 10.0_rpm, 0.5, 50, 3);
-antistall::AntistallMotor tophood(16, 200_rpm, 0.0_amp, 0.0_rpm, 0.5, 100, 1);
-antistall::AntistallMotor firstStageIntake(-3, 600_rpm, 0.0_amp, 0.0_rpm, 1, 80, 5);
+antistall::AntistallMotor secondStageIntake(-9, 200_rpm, 0.0_amp, 10.0_rpm, 0.5, 50, 3);
 
-pros::ADIDigitalOut scraperPiston('G');
-pros::ADIDigitalOut HoodClose('B');
+antistall::AntistallMotor firstStageIntake(-10, 600_rpm, 0.17_amp, 0.17_rpm, .3, 10, 1);
+
+pros::ADIDigitalOut scraperPiston('H');
+pros::ADIDigitalOut WingRight('C');
+pros::ADIDigitalOut Middle_Goal('E');
+pros::ADIDigitalOut WingLeft('G');
+pros::ADIDigitalOut Aligner('B');
+
 pros::Optical topColorSortingSensor(5);
 pros::Optical lowColorSortingSensor(5);
 pros::Optical autonColorSensor(4); // For auton color detection
 
-// Set up distance sensors for particle filter
-pros::Distance frontSensor(6);
-pros::Distance rightSensor(7);
-pros::Distance backSensor(20);
-pros::Distance leftSensor(8);
+// Set up distance sensors for particle filter      
+pros::Distance frontSensor(11);
+pros::Distance rightSensor(21);
+pros::Distance backSensor(17);
+pros::Distance leftSensor(7);
 
-bool HoodState = false; // Flag to track PTO state
-bool scraperDown = false; // Flag to track scraper state
+bool MiddleState = false; // Flag to track PTO state
+bool scraperDown = false;
+bool AlignerDown = false; // Flag to track scraper state
 AllianceColor allianceColor = AllianceColor::RED;
 SnailState snailState = SnailState::OFF;
-ConveyorState conveyorState = ConveyorState::OFF;
+WingState wingState = WingState::DOWN;
 ColorSortState colorSortState = ColorSortState::OFF;
 LeftOrRight autonStartingPosition = LeftOrRight::LEFT; // Default starting position
 
@@ -96,18 +101,18 @@ control::DriveMode currentDriveMode = control::DriveMode::ARCADE; // Default to 
 // Create the driver control instance
 control::DriverControl driverControl(leftMotors, rightMotors, controller);
 
-units::Pose backSensorPos(0.5_in, -4.3_in, from_cDeg(180.0));
-units::Pose leftSensorPos(-6.5_in, 0_in, from_cDeg(90.0));
-units::Pose rightSensorPos(5.5_in, 0.5_in, from_cDeg(-90.0));
-units::Pose frontSensorPos(-3.75_in, 7.5_in, from_cDeg(0.0));
+units::Pose backSensorPos(-4.0_in, -5.0_in, from_cDeg(180.0));
+units::Pose leftSensorPos(-4.5_in, 0_in, from_cDeg(90.0));
+units::Pose rightSensorPos(4.5_in, 0_in, from_cDeg(-90.0));
+units::Pose frontSensorPos(-4.0_in, 7.0_in, from_cDeg(0.0));
 
 // Setup configuration values - initial estimates that will be refined
 Length trackWidth = 13.5_in;		// Initial estimate for track width
 Length wheelDiameter = 2.75_in;     // Diameter of wheels
-// Number kS = 0.0;								// Static friction (volts)
-Number kS = 0.6171;
-Number kV = 0.09796043;								// Velocity feedforward (volts per velocity)
-Number kA = 0.0328166;								// Acceleration feedforward (volts per acceleration)
+// Number kS = 0.0;						// Static friction (volts)
+Number kS = 0.4217; 
+Number kV = 0.0936319;					// Velocity feedforward (volts per velocity)
+Number kA = 0.035960933;				// Acceleration feedforward (volts per acceleration)
 
 double linearKp = .15;
 double linearKi = 0.0;
@@ -177,12 +182,12 @@ rd::Selector selector({
 		// {"Gen Path Test", genPathTest, "", 55},
 		// {"Odom Test", runOdomTest, "", 55},
 		// {"PF DS Calib", calibrateParticleFilterDistanceSensorPoses, "", 55},
-		{"PF Test", runParticleFilterTest, "", 55},
-		// {"Tune kS", tuneKs, "", 55},
-		// {"Tune kV", tuneKv, "", 55},
-		// {"Tune kA", tuneKa, "", 55},
-		{"Manual Turn", manualTurnTest, "", 55},
-		{"Manual Linear", manualLinearTest, "", 55},
+		//{"PF Test", runParticleFilterTest, "", 55},
+		 //{"Tune kS", tuneKs, "", 55},
+		 //{"Tune kV", tuneKv, "", 55},
+		 //{"Tune kA", tuneKa, "", 55},
+		//{"Manual Turn", manualTurnTest, "", 55},
+		//{"Manual Linear", manualLinearTest, "", 55},
 		// {"Path Test", runPathTest, "", 55},
 });
 
@@ -198,15 +203,16 @@ viz::DiagnosticsView diagnosticsView;
  */
 void initialize()
 {
-	prosLeftMotors.tare_position();
-	prosRightMotors.tare_position();
-	prosLeftMotors.set_zero_position(0);
-	prosRightMotors.set_zero_position(0);
-	leftMotors.setAngle(0_stDeg);
-	rightMotors.setAngle(0_stDeg);
-	secondStageIntake.setBrakeMode(lemlib::BrakeMode::COAST);
-	tophood.setBrakeMode(lemlib::BrakeMode::COAST);
-	firstStageIntake.setBrakeMode(lemlib::BrakeMode::COAST);
+	wingState = WingState::DOWN;
+	prosLeftMotors.tare_position(); 
+	prosRightMotors.tare_position(); 
+	prosLeftMotors.set_zero_position(0); 
+	prosRightMotors.set_zero_position(0); 
+	leftMotors.setAngle(0_stDeg); 
+	rightMotors.setAngle(0_stDeg); 
+	secondStageIntake.setBrakeMode(lemlib::BrakeMode::COAST); 
+	
+	firstStageIntake.setBrakeMode(lemlib::BrakeMode::COAST); 
 
 	// Selector callback example, prints selected auton to the console
 	selector.sd_load();
@@ -335,15 +341,25 @@ void competition_initialize() {
 	int rightSensorDistance = rightSensor.get_distance();
 	int leftSensorDistance = leftSensor.get_distance();
 
-	if(rightSensorDistance > 0 && leftSensorDistance > 0) {
-		if(rightSensorDistance < leftSensorDistance) {
-			autonStartingPosition = LeftOrRight::RIGHT;
-		} else {
-			autonStartingPosition = LeftOrRight::LEFT;
-		}
-	}
+	//if(rightSensorDistance > 0 && leftSensorDistance > 0) {
+		//if(rightSensorDistance < leftSensorDistance) {
+			//autonStartingPosition = LeftOrRight::RIGHT;
+		//} else {
+			//autonStartingPosition = LeftOrRight::LEFT;
+		//}
+	//}
 
-	getAutonColorState();
+	//if(rightSensorDistance > 1300 && rightSensorDistance < 1450) {
+			//autonStartingPosition = LeftOrRight::RIGHT;
+		//} 
+	//else if(leftSensorDistance > 1300 && leftSensorDistance < 1450) {
+			//autonStartingPosition = LeftOrRight::LEFT;
+		//}
+
+}
+
+	void getAutonColorState()
+{
 
 	printf("Alliance: %s - Auton Starting Position: %s\n", 
 		(allianceColor == AllianceColor::BLUE) ? "BLUE" : "RED",
@@ -351,7 +367,8 @@ void competition_initialize() {
 	controller.print(0, 0, "%s - %s", 
 		(allianceColor == AllianceColor::BLUE) ? "BLUE" : "RED",
 		(autonStartingPosition == LeftOrRight::LEFT) ? "LEFT" : "RIGHT");
-}
+		
+ }
 
 /**
  * Runs the user autonomous code. This function will be started in its own task
@@ -377,7 +394,7 @@ void autonomous()
 	int rightSensorDistance = rightSensor.get_distance();
 	int leftSensorDistance = leftSensor.get_distance();
 
-	std::cout << "Right Sensor Distance: " << rightSensorDistance << " mm, Left Sensor Distance: " << leftSensorDistance << " mm" << std::endl;
+	/*std::cout << "Right Sensor Distance: " << rightSensorDistance << " mm, Left Sensor Distance: " << leftSensorDistance << " mm" << std::endl;
 	if(rightSensorDistance > 0 && leftSensorDistance > 0) {
 		if(rightSensorDistance > 1300 && rightSensorDistance < 1450) {
 			autonStartingPosition = LeftOrRight::RIGHT;
@@ -387,10 +404,11 @@ void autonomous()
 			std::cout << "Could not determine auton starting position from distance sensors, hardcoding to RIGHT" << std::endl;
 			autonStartingPosition = LeftOrRight::RIGHT;
 		}
-	}
+	}*/
 	std::cout << "Alliance: " << ((allianceColor == AllianceColor::BLUE) ? "BLUE" : "RED") 
 		<< " - Auton Starting Position: " << ((autonStartingPosition == LeftOrRight::LEFT) ? "LEFT" : "RIGHT") << std::endl;
-	selector.run_auton();
+	selector.run_auton(); 
+	// tuneKs();  // Run kS tuning directly
 
 	// Compute and report total autonomous execution time
 	uint32_t autonEndMs = pros::millis();
@@ -448,32 +466,38 @@ void opcontrol()
 			snailState = SnailState::OFF; // No buttons pressed, stop the intake and scoring motors
 		}
 		if(controller.get_digital_new_press(DIGITAL_A)) {
-			HoodState = !HoodState;
-			scraperPiston.set_value(HoodState);
+			MiddleState = !MiddleState;
+			Middle_Goal.set_value(MiddleState);
 		 } // Close the hood
 		if(controller.get_digital_new_press(DIGITAL_DOWN)) {
-			if(conveyorState == ConveyorState::REVERSED) {
-				conveyorState = ConveyorState::OFF;      // Stop the conveyor
-			} else {
-				conveyorState = ConveyorState::REVERSED; // Start the conveyor
+
+			if (wingState == WingState::LEFTUP) {
+				wingState = WingState::RIGHTUP;
+			
+			} 
+			else if (wingState == WingState::RIGHTUP) 
+			{
+				wingState = WingState::LEFTUP;
+
 			}
+			else if (wingState == WingState::DOWN) {
+				wingState = WingState::LEFTUP;
+			}
+		}
+		if(controller.get_digital_new_press(DIGITAL_LEFT)) {
+			wingState = WingState::DOWN;
+
+		}
+		if(controller.get_digital_new_press(DIGITAL_RIGHT)) {
+			AlignerDown = !AlignerDown;
+			Aligner.set_value(AlignerDown);
 		}
 		if(controller.get_digital_new_press(DIGITAL_B)) {
 			scraperDown = !scraperDown;             // Toggle scraper state
-			HoodClose.set_value(scraperDown);  // Move scraper piston down or up()
+			scraperPiston.set_value(scraperDown); 
+			
 		}
-		if(controller.get_digital_new_press(DIGITAL_RIGHT)) {
-			if (colorSortState == ColorSortState::OFF) {
-				colorSortState = ColorSortState::RED; // Start color sorting in red mode
-				printf("Color sorting started in red mode\n");
-			} else if(colorSortState == ColorSortState::RED) {
-				colorSortState = ColorSortState::BLUE; // Switch to blue mode
-				printf("Color sorting switched to blue mode\n");
-			} else if(colorSortState == ColorSortState::BLUE) {
-				colorSortState = ColorSortState::OFF; // Turn off color sorting
-				printf("Color sorting turned off\n");
-			}
-		}
+		
 
 		pros::delay(20);
 	}

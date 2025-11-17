@@ -5,14 +5,15 @@
 #include "antistall/AntistallMotor.hpp"
 
 extern antistall::AntistallMotor firstStageIntake;
-extern antistall::AntistallMotor tophood;
+
 
 //extern lemlib::Motor firstStageIntake;
 //extern lemlib::Motor SecondStageIntake;
 //extern lemlib::Motor basketChain;
 //extern antistall::AntistallMotor basketMotor;
 extern antistall::AntistallMotor secondStageIntake;
-
+extern pros::ADIDigitalOut WingRight;
+extern pros::ADIDigitalOut WingLeft;
 
 
 extern double conveyorSpin;
@@ -24,12 +25,12 @@ extern uint32_t jiggleStartTime;
 extern int jiggleCount;
 
 
-enum class ConveyorState {
-    REVERSED = -1,
-    OFF = 0,
-    SPINNING = 1
+enum class WingState {
+    LEFTUP = -1,
+    DOWN = 0,
+    RIGHTUP = 1
 };
-extern ConveyorState conveyorState;
+extern WingState wingState;
 
 enum class SnailState {
     OFF,

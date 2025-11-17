@@ -1,6 +1,6 @@
 #include "auton/CompetitionAutons.hpp"
 #include "pros/adi.hpp"
-#include "AntistallColorSort.hpp" // Add this include for SnailState definition
+#include "auton/IntakeAndPistonState.hpp" // Add this include for SnailState definition
 #include "control/DifferentialDriveConfig.hpp"
 
 void autonSkills()

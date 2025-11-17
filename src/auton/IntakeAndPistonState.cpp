@@ -1,12 +1,12 @@
-#include "auton/AntiStallColorSort.hpp"
+#include "auton/IntakeAndPistonState.hpp"
 #include <cmath>
 
 // Anti-stall constants
 
-double conveyorSpin = 0.0;
+
 int colorSort = 0; // Flag to track color sorting state
 
-void getAutonColorState()
+/*void getAutonColorState()
 {
     // Get the color detected by the sorting sensor
     autonColorSensor.set_led_pwm(100);
@@ -22,7 +22,7 @@ void getAutonColorState()
         allianceColor = AllianceColor::OFF; // No valid color detected
     }
 }
-
+*/
 // Continuously update the detected ball color in a background task
 AllianceColor detectedBallColor = AllianceColor::OFF;
 
@@ -31,7 +31,7 @@ int HIGH_BLUE_HUE = 270;
 int LOW_RED_HUE = 355;
 int HIGH_RED_HUE = 30;
 
-AllianceColor topballColor() {
+/*AllianceColor topballColor() {
     double hue = topColorSortingSensor.get_hue();
     int proximity = topColorSortingSensor.get_proximity();
     printf("Top Color Sensor - Hue: %.2f, Proximity: %d\n", hue, proximity);
@@ -57,11 +57,11 @@ AllianceColor lowballColor() {
         return AllianceColor::OFF;
     }
 }
-
+*/
 void intakeAntiStallColorSort()
 {
     SnailState actualSnailState = snailState;
-    if(colorSortState != ColorSortState::OFF && actualSnailState != SnailState::OFF) {
+    /*if(colorSortState != ColorSortState::OFF && actualSnailState != SnailState::OFF) {
         printf("Color Sort State: %d\n", (int)colorSortState);
         AllianceColor topColor = topballColor();
         AllianceColor lowColor = lowballColor();
@@ -71,49 +71,55 @@ void intakeAntiStallColorSort()
             }
         }
     }
-    switch(conveyorState)
+    */
+    switch(wingState)
     {
-        case ConveyorState::OFF:
-            conveyorSpin = 0; // Stop conveyor
+
+        case WingState::LEFTUP:
+            WingLeft.set_value(true);
+            WingRight.set_value(false);
             break;
-        case ConveyorState::SPINNING:
-            conveyorSpin = -1; // Adjust power as needed
+        case WingState::DOWN:
+            WingLeft.set_value(false);
+            WingRight.set_value(false);
             break;
-        case ConveyorState::REVERSED:
-            conveyorSpin = 1.0; // Adjust power as needed
+        case WingState::RIGHTUP:
+            WingLeft.set_value(false);
+            WingRight.set_value(true);
             break;
     }
     switch (actualSnailState)
     {
         case SnailState::OFF:
 			firstStageIntake.move(0);
-			tophood.move(0);
+			
 			secondStageIntake.move(0);
             
             break;
         case SnailState::Index:
 			
-			tophood.move(0.0);
+			
 			secondStageIntake.move(0.0);
             firstStageIntake.move(-1.0);
             break;
         case SnailState::Out:
 			
-			tophood.move(-1.0);
+			
 			secondStageIntake.move(-1.0);
             firstStageIntake.move(1.0);
             break;
         case SnailState::Middle:
 			
-			tophood.move(-1.0);
+			
 			secondStageIntake.move(1.0);
             firstStageIntake.move(-1.0);
             break;
         case SnailState::Long:
 			
-			tophood.move(1.0);
+			
 			secondStageIntake.move(1.0);
             firstStageIntake.move(-1.0);
             break;
     }
 }
+
