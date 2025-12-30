@@ -565,6 +565,8 @@ bool PIDDriveController::isSettled() const {
             return const_cast<PIDDriveController*>(this)->isAngularSettled(currentPose.orientation);
         case MotionType::POSE:
             return isPoseSettled(currentPose);
+        case MotionType::POINT:
+            return const_cast<PIDDriveController*>(this)->isPointSettled(currentPose);
         case MotionType::NONE:
         default:
             return true;

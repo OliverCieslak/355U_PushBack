@@ -56,6 +56,7 @@ antistall::AntistallMotor firstStageIntake(-10, 600_rpm, 0.17_amp, 0.17_rpm, .3,
 
 pros::ADIDigitalOut scraperPiston('H');
 pros::ADIDigitalOut WingRight('C');
+pros::ADIAnalogIn potSelector('D');
 pros::ADIDigitalOut Middle_Goal('E');
 pros::ADIDigitalOut WingLeft('G');
 pros::ADIDigitalOut Aligner('B');
@@ -171,8 +172,10 @@ control::PIDDriveController pidPfDriveController(
 
 rd::Selector selector({
 		 {"7 Ball", autonSevenBallLongGoal, "", 240},
-		 {"4 Ball", autonFourBallLongGoal, "", 240},
-		 {"Skills", autonSkills, "", 240},
+		 {"Alt 7 Ball Dial Side", autonSevenBallLongGoalAltDialSide, "", 240},
+		 {"Partner SelfAWP Dial Side", autonPartnerSelfAWPDialSide, "", 240},
+		 {"Red Skills", autonSkillsRedSideOnly, "", 120},
+		 // {"Skills", autonSkills, "", 240},
 		 // {"9 Ball", autonNineBallLongGoal, "", 240},
 		 // {"PP Full Path", purePursuitTest, "", 240},
 		 // {"PP Straight", purePursuitStraightTest, "", 120},
@@ -358,17 +361,10 @@ void competition_initialize() {
 
 }
 
-	void getAutonColorState()
+void getAutonColorState()
 {
-
-	printf("Alliance: %s - Auton Starting Position: %s\n", 
-		(allianceColor == AllianceColor::BLUE) ? "BLUE" : "RED",
-		(autonStartingPosition == LeftOrRight::LEFT) ? "LEFT" : "RIGHT");
-	controller.print(0, 0, "%s - %s", 
-		(allianceColor == AllianceColor::BLUE) ? "BLUE" : "RED",
-		(autonStartingPosition == LeftOrRight::LEFT) ? "LEFT" : "RIGHT");
 		
- }
+}
 
 /**
  * Runs the user autonomous code. This function will be started in its own task
@@ -405,8 +401,6 @@ void autonomous()
 			autonStartingPosition = LeftOrRight::RIGHT;
 		}
 	}*/
-	std::cout << "Alliance: " << ((allianceColor == AllianceColor::BLUE) ? "BLUE" : "RED") 
-		<< " - Auton Starting Position: " << ((autonStartingPosition == LeftOrRight::LEFT) ? "LEFT" : "RIGHT") << std::endl;
 	selector.run_auton(); 
 	// tuneKs();  // Run kS tuning directly
 
@@ -484,11 +478,33 @@ void opcontrol()
 				wingState = WingState::LEFTUP;
 			}
 		}
-		if(controller.get_digital_new_press(DIGITAL_LEFT)) {
-			wingState = WingState::DOWN;
+		//basically i made the wings work on bottom and right, and shifted the uhh parking thing to the left one.
 
-		}
+
 		if(controller.get_digital_new_press(DIGITAL_RIGHT)) {
+
+			if (wingState == WingState::LEFTUP) {
+				wingState = WingState::RIGHTUP;
+			
+			} 
+			else if (wingState == WingState::RIGHTUP) 
+			{
+				wingState = WingState::LEFTUP;
+
+			}
+			else if (wingState == WingState::DOWN) {
+				wingState = WingState::LEFTUP;
+			}
+		}
+		//if(controller.get_digital_new_press(DIGITAL_LEFT)) {
+			//wingState = WingState::DOWN;
+
+		//}
+		//if(controller.get_digital_new_press(DIGITAL_RIGHT)) {
+			//AlignerDown = !AlignerDown;
+			//Aligner.set_value(AlignerDown);
+		//}
+		if(controller.get_digital_new_press(DIGITAL_LEFT)) {
 			AlignerDown = !AlignerDown;
 			Aligner.set_value(AlignerDown);
 		}
