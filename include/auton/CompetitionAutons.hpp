@@ -56,6 +56,7 @@ void autonPartnerSelfAWPDialSide();
 void autonPartnerSelfAWP(LeftOrRight side);
 void autonSkills();
 void autonSkillsRedSideOnly();
+void autonTwentyBallSkills();
 void purePursuitTest();
 void purePursuitStraightTest();
 void purePursuitSTest();

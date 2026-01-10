@@ -111,7 +111,7 @@ void intakeAntiStallColorSort()
         case SnailState::Middle:
 			
 			
-			secondStageIntake.move(1.0);
+			secondStageIntake.move(-1.0);
             firstStageIntake.move(-1.0);
             break;
         case SnailState::Long:

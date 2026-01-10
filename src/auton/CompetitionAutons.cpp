@@ -10,7 +10,7 @@ void autonSevenBallLongGoal()
 {
     // Implement the seven ball long goal autonomous routine here
 
-    float xCoordMultiplier = -1.0; float yCoordMultiplier =  1.0; float heading_multiplier = 1.0; // blue left
+    float xCoordMultiplier = -1.0; float yCoordMultiplier =  -1.0; float heading_multiplier = 1.0; // blue right 
     if(potSelector.get_value() < 4095 / 2)  // potentiometer max value is 4095, so anything past halfway is pointing to the right
     {
         yCoordMultiplier = -1.0;

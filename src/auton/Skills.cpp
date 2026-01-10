@@ -126,3 +126,28 @@ void autonSkillsRedSideOnly()
     pros::delay(2000); // Wait to score the balls
     snailState = SnailState::OFF;
 }
+
+void autonTwentyBallSkills()
+{
+    units::Pose initialPose = units::Pose(48_in, 0_in, from_cDeg(0));
+    odometrySystem.resetPose(initialPose);
+    // particleFilter.resetPose(initialPose);
+    odometrySystem.start();
+    // particleFilter.start();
+    leftMotors.setBrakeMode(lemlib::BrakeMode::BRAKE);
+    rightMotors.setBrakeMode(lemlib::BrakeMode::BRAKE);
+
+    snailState = SnailState::Index; // Only the first stage on
+    firstStageIntake.setMaxJiggleCycles(33);
+
+    // Example sequence of movements (to be replaced with actual routine)
+    pidDriveController.driveDistance(6_in, 3.0, 2_sec, true); // Drive forward
+    pros::delay(2000); // Wait for 2 seconds
+    pidDriveController.driveDistance(-6_in, 3.0, 2_sec, true); // Drive backward
+    pros::delay(2000); // Wait for 2 seconds
+    pidDriveController.turnToHeading(90_cDeg, 5.0, 2_sec, true); // Turn 90 degrees
+    pros::delay(2000); // Wait for 2 seconds
+    pidDriveController.turnToHeading(0_cDeg, 5.0, 2_sec, true); // Turn 90 degrees
+
+    snailState = SnailState::OFF; // Stop intake and scoring motors at the end
+}

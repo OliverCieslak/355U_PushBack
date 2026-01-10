@@ -28,12 +28,12 @@
 #include <fstream>
 #include <iostream>
 
-#define LEFT_MOTOR_1 -20
-#define LEFT_MOTOR_2 -19
-#define LEFT_MOTOR_3 -18
-#define RIGHT_MOTOR_1 15
-#define RIGHT_MOTOR_2 16
-#define RIGHT_MOTOR_3 14
+#define LEFT_MOTOR_1 -11
+#define LEFT_MOTOR_2 -12
+#define LEFT_MOTOR_3 -13
+#define RIGHT_MOTOR_1 20
+#define RIGHT_MOTOR_2 19
+#define RIGHT_MOTOR_3 18
 
 pros::Motor prosLeft1(LEFT_MOTOR_1, pros::MotorGearset::blue);
 pros::Motor prosLeft2(LEFT_MOTOR_2, pros::MotorGearset::blue);
@@ -50,9 +50,9 @@ lemlib::V5InertialSensor imu(6);
 
 // Snail motors for intake and scoring
 
-antistall::AntistallMotor secondStageIntake(-9, 200_rpm, 0.0_amp, 10.0_rpm, 0.5, 50, 3);
+antistall::AntistallMotor secondStageIntake(-10, 200_rpm, 0.0_amp, 10.0_rpm, 0.5, 50, 3);
 
-antistall::AntistallMotor firstStageIntake(-10, 600_rpm, 0.17_amp, 0.17_rpm, .3, 10, 1);
+antistall::AntistallMotor firstStageIntake(-1, 600_rpm, 0.17_amp, 0.17_rpm, .3, 10, 1);
 
 pros::ADIDigitalOut scraperPiston('H');
 pros::ADIDigitalOut WingRight('C');
@@ -171,11 +171,12 @@ control::PIDDriveController pidPfDriveController(
 		{ return particleFilter.getPose(); });
 
 rd::Selector selector({
-		 {"7 Ball", autonSevenBallLongGoal, "", 240},
-		 {"Alt 7 Ball Dial Side", autonSevenBallLongGoalAltDialSide, "", 240},
-		 {"Partner SelfAWP Dial Side", autonPartnerSelfAWPDialSide, "", 240},
-		 {"Red Skills", autonSkillsRedSideOnly, "", 120},
+		 // {"7 Ball", autonSevenBallLongGoal, "", 240},
+		 // {"Alt 7 Ball Dial Side", autonSevenBallLongGoalAltDialSide, "", 240},
+		 // {"Partner SelfAWP Dial Side", autonPartnerSelfAWPDialSide, "", 240},
+		 // {"Red Skills", autonSkillsRedSideOnly, "", 120},
 		 // {"Skills", autonSkills, "", 240},
+		 {"20 Skills", autonTwentyBallSkills, "", 240},
 		 // {"9 Ball", autonNineBallLongGoal, "", 240},
 		 // {"PP Full Path", purePursuitTest, "", 240},
 		 // {"PP Straight", purePursuitStraightTest, "", 120},
