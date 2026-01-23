@@ -77,15 +77,12 @@ void intakeAntiStallColorSort()
 
         case WingState::LEFTUP:
             WingLeft.set_value(true);
-            WingRight.set_value(false);
             break;
         case WingState::DOWN:
             WingLeft.set_value(false);
-            WingRight.set_value(false);
             break;
         case WingState::RIGHTUP:
             WingLeft.set_value(false);
-            WingRight.set_value(true);
             break;
     }
     switch (actualSnailState)

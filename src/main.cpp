@@ -46,24 +46,17 @@ pros::MotorGroup prosRightMotors({RIGHT_MOTOR_1, RIGHT_MOTOR_2, RIGHT_MOTOR_3}, 
 lemlib::MotorGroup leftMotors({LEFT_MOTOR_1, LEFT_MOTOR_2, LEFT_MOTOR_3}, 600_rpm);
 lemlib::MotorGroup rightMotors({RIGHT_MOTOR_1, RIGHT_MOTOR_2, RIGHT_MOTOR_3}, 600_rpm);
 
-lemlib::V5InertialSensor imu(6);
+lemlib::V5InertialSensor imu(17);
 
 // Snail motors for intake and scoring
 
 antistall::AntistallMotor secondStageIntake(-10, 200_rpm, 0.0_amp, 10.0_rpm, 0.5, 50, 3);
 
-antistall::AntistallMotor firstStageIntake(-1, 600_rpm, 0.17_amp, 0.17_rpm, .3, 10, 1);
+antistall::AntistallMotor firstStageIntake(-1, 600_rpm, 0.17_amp, 0.17_rpm, .53, 50, 4);
 
-pros::ADIDigitalOut scraperPiston('H');
-pros::ADIDigitalOut WingRight('C');
+pros::ADIDigitalOut scraperPiston('G');
 pros::ADIAnalogIn potSelector('D');
-pros::ADIDigitalOut Middle_Goal('E');
-pros::ADIDigitalOut WingLeft('G');
-pros::ADIDigitalOut Aligner('B');
-
-pros::Optical topColorSortingSensor(5);
-pros::Optical lowColorSortingSensor(5);
-pros::Optical autonColorSensor(4); // For auton color detection
+pros::ADIDigitalOut WingLeft('H');
 
 // Set up distance sensors for particle filter      
 pros::Distance frontSensor(11);
@@ -73,7 +66,6 @@ pros::Distance leftSensor(7);
 
 bool MiddleState = false; // Flag to track PTO state
 bool scraperDown = false;
-bool AlignerDown = false; // Flag to track scraper state
 AllianceColor allianceColor = AllianceColor::RED;
 SnailState snailState = SnailState::OFF;
 WingState wingState = WingState::DOWN;
@@ -111,17 +103,23 @@ units::Pose frontSensorPos(-4.0_in, 7.0_in, from_cDeg(0.0));
 Length trackWidth = 13.5_in;		// Initial estimate for track width
 Length wheelDiameter = 2.75_in;     // Diameter of wheels
 // Number kS = 0.0;						// Static friction (volts)
+/*
 Number kS = 0.4217; 
 Number kV = 0.0936319;					// Velocity feedforward (volts per velocity)
 Number kA = 0.035960933;				// Acceleration feedforward (volts per acceleration)
+*/
 
-double linearKp = .15;
+Number kS = 0.6994; 
+Number kV = 0.1457;					// Velocity feedforward (volts per velocity)
+Number kA = 0.023628;				// Acceleration feedforward (volts per acceleration)
+
+double linearKp = .125;
 double linearKi = 0.0;
 double linearKd = 0.0;
-double angularKp = .5;
+double angularKp = .15;
 double angularKi = 0.0;
-double angularKd = 33.0;
-Mass robotMass = 13.6_lb;
+double angularKd = 500.0;
+Mass robotMass = 13.0_lb;
 Torque driveTrainTorque = 2.1_Nm; // 6 motors at 0.35 Nm each
 
 // Maximum velocity of the robot - we could calculate this from drive RPM and wheelspeed, but hardcode for now based on 600RPM on 2.75
@@ -176,6 +174,10 @@ rd::Selector selector({
 		 // {"Partner SelfAWP Dial Side", autonPartnerSelfAWPDialSide, "", 240},
 		 // {"Red Skills", autonSkillsRedSideOnly, "", 120},
 		 // {"Skills", autonSkills, "", 240},
+		 {"Upper Side", autonLongAndUpperGoal, "", 120},
+		 {"Rush Lower", autonRushLower, "", 90},
+		 {"Partner SelfAWP Dumb", autonPartnerSelfAWPDumb, "", 120},
+		 {"Lower Side", autonLongAndLowerGoal, "", 120},
 		 {"20 Skills", autonTwentyBallSkills, "", 240},
 		 // {"9 Ball", autonNineBallLongGoal, "", 240},
 		 // {"PP Full Path", purePursuitTest, "", 240},
@@ -187,11 +189,11 @@ rd::Selector selector({
 		// {"Odom Test", runOdomTest, "", 55},
 		// {"PF DS Calib", calibrateParticleFilterDistanceSensorPoses, "", 55},
 		//{"PF Test", runParticleFilterTest, "", 55},
-		 //{"Tune kS", tuneKs, "", 55},
-		 //{"Tune kV", tuneKv, "", 55},
-		 //{"Tune kA", tuneKa, "", 55},
-		//{"Manual Turn", manualTurnTest, "", 55},
-		//{"Manual Linear", manualLinearTest, "", 55},
+		 // {"Tune kS", tuneKs, "", 55},
+		 // {"Tune kV", tuneKv, "", 55},
+		 // {"Tune kA", tuneKa, "", 55},
+		// {"Manual Turn", manualTurnTest, "", 55},
+		// {"Manual Linear", manualLinearTest, "", 55},
 		// {"Path Test", runPathTest, "", 55},
 });
 
@@ -384,8 +386,6 @@ void autonomous()
 	std::cout << "Autonomous mode started" << std::endl;
 	// Capture start time for autonomous routine execution
 	uint32_t autonStartMs = pros::millis();
-	topColorSortingSensor.set_led_pwm(100); // Ensure the sensor is active
-	getAutonColorState();
 
 	// probably did not connect in the right order
 	int rightSensorDistance = rightSensor.get_distance();
@@ -428,7 +428,6 @@ void autonomous()
 void opcontrol()
 {
 	// Set motor brake modes
-	topColorSortingSensor.set_led_pwm(100); // Ensure the sensor is active
 	leftMotors.setBrakeMode(lemlib::BrakeMode::COAST);
 	rightMotors.setBrakeMode(lemlib::BrakeMode::COAST);
 	if(diagnosticsView.getDriveMode() == control::DriveMode::ARCADE) {
@@ -460,10 +459,6 @@ void opcontrol()
 		} else {
 			snailState = SnailState::OFF; // No buttons pressed, stop the intake and scoring motors
 		}
-		if(controller.get_digital_new_press(DIGITAL_A)) {
-			MiddleState = !MiddleState;
-			Middle_Goal.set_value(MiddleState);
-		 } // Close the hood
 		if(controller.get_digital_new_press(DIGITAL_DOWN)) {
 
 			if (wingState == WingState::LEFTUP) {
@@ -496,18 +491,6 @@ void opcontrol()
 			else if (wingState == WingState::DOWN) {
 				wingState = WingState::LEFTUP;
 			}
-		}
-		//if(controller.get_digital_new_press(DIGITAL_LEFT)) {
-			//wingState = WingState::DOWN;
-
-		//}
-		//if(controller.get_digital_new_press(DIGITAL_RIGHT)) {
-			//AlignerDown = !AlignerDown;
-			//Aligner.set_value(AlignerDown);
-		//}
-		if(controller.get_digital_new_press(DIGITAL_LEFT)) {
-			AlignerDown = !AlignerDown;
-			Aligner.set_value(AlignerDown);
 		}
 		if(controller.get_digital_new_press(DIGITAL_B)) {
 			scraperDown = !scraperDown;             // Toggle scraper state

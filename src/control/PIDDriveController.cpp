@@ -52,7 +52,6 @@ bool PIDDriveController::driveDistance(Length distance, Number maxVoltage, Time 
         const Time updateInterval = 10_msec;
         while (update(updateInterval) && m_elapsedTime < m_timeout) {
             pros::delay(10); // 10ms delay (matches updateInterval)
-            m_elapsedTime += updateInterval;
         }
         
         return isSettled();
@@ -92,20 +91,27 @@ bool PIDDriveController::driveToPoint(const Point& targetPoint, Number maxVoltag
         const Time updateInterval = 10_msec;
         while (update(updateInterval) && m_elapsedTime < m_timeout) {
             pros::delay(10);
-            m_elapsedTime += updateInterval;
         }
         return isSettled();
     }
     return true;
 }
 
-bool PIDDriveController::turnToHeading(Angle targetHeading, Number maxVoltage, Time timeout, bool waitUntilSettled) {
+bool PIDDriveController::turnToHeading(
+    Angle targetHeading,
+    Number maxVoltage,
+    Time timeout,
+    bool waitUntilSettled,
+    TurnMode turnMode
+) {
     // Initialize motion parameters
     m_angularTarget = targetHeading;
     m_initialHeading = m_poseProvider().orientation;
     m_maxVoltage = maxVoltage;
     m_timeout = timeout;
     m_elapsedTime = 0_sec;
+
+    m_turnMode = turnMode;
     
     // Set motion type and flags
     m_motionType = MotionType::ANGULAR;
@@ -123,7 +129,6 @@ bool PIDDriveController::turnToHeading(Angle targetHeading, Number maxVoltage, T
         const Time updateInterval = 10_msec;
         while (update(updateInterval) && m_elapsedTime < m_timeout) {
             pros::delay(10); // 10ms delay (matches updateInterval)
-            m_elapsedTime += updateInterval;
         }
         
         return isSettled();
@@ -132,10 +137,17 @@ bool PIDDriveController::turnToHeading(Angle targetHeading, Number maxVoltage, T
     return true;
 }
 
-bool PIDDriveController::turnAngle(Angle angle, Number maxVoltage, Time timeout, bool waitUntilSettled) {
+bool PIDDriveController::turnAngle(Angle angle, Number maxVoltage, Time timeout, bool waitUntilSettled, TurnMode turnMode) {
     // Convert relative angle to absolute heading
     Angle currentHeading = m_poseProvider().orientation;
-    return turnToHeading(currentHeading + angle, maxVoltage, timeout, waitUntilSettled);
+    return turnToHeading(currentHeading + angle, maxVoltage, timeout, waitUntilSettled, turnMode);
+}
+
+bool PIDDriveController::turnToPoint(const Point& targetPoint, Number maxVoltage, Time timeout, bool waitUntilSettled, TurnMode turnMode) {
+    units::Pose currentPose = m_poseProvider();
+    units::Pose targetPose{targetPoint.x, targetPoint.y, 0_stRad};
+    Angle headingToTarget = currentPose.angleTo(targetPose);
+    return turnToHeading(headingToTarget, maxVoltage, timeout, waitUntilSettled, turnMode);
 }
 
 // Update the existing driveToPose method
@@ -180,7 +192,6 @@ bool PIDDriveController::driveToPoseBoomerang(
         const Time updateInterval = 10_msec;
         while (update(updateInterval) && m_elapsedTime < m_timeout) {
             pros::delay(10); // 10ms delay (matches updateInterval)
-            m_elapsedTime += updateInterval;
         }
         
         return isSettled();
@@ -218,7 +229,8 @@ bool PIDDriveController::update(Time dt) {
     Length totalDistance = 0_in;
     switch (m_motionType) {
         case MotionType::LINEAR:
-            totalDistance = m_linearTarget;
+            // Use magnitude for distance-based triggers
+            totalDistance = units::abs(m_linearTarget);
             break;
         case MotionType::ANGULAR:
             // For angular motion, we can't meaningfully use distance triggers
@@ -248,9 +260,14 @@ bool PIDDriveController::update(Time dt) {
         case MotionType::LINEAR: {
             // Calculate heading error
             Angle headingError = units::constrainAngle180(currentPose.orientation - m_initialHeading);
+
+            // Signed linear distance from accumulated path length.
+            // This avoids depending on field-frame axis/heading conventions.
+            Length signedDistance = units::sgn(m_linearTarget) * m_accumulatedDistance;
+            Length linearError = m_linearTarget - signedDistance;
             
             // Calculate outputs from PID controllers
-            Number linearOutput = m_linearController.calculate(to_in(m_accumulatedDistance), to_in(m_linearTarget), to_msec(m_elapsedTime));
+            Number linearOutput = m_linearController.calculate(0.0, to_in(linearError), to_msec(m_elapsedTime));
             Number headingCorrection = m_angularController.calculate(to_stDeg(headingError), 0, to_msec(m_elapsedTime));
             // Limit headingCorrection to ±10% of linearOutput
             Number maxCorrection = std::abs(linearOutput) * 0.10;
@@ -266,7 +283,7 @@ bool PIDDriveController::update(Time dt) {
             rightVoltage = linearOutput + headingCorrection;
             
             // Check if settled
-            if (isLinearSettled(m_accumulatedDistance)) {
+            if (isLinearSettled(signedDistance)) {
                 stop();
                 return false;
             }
@@ -275,10 +292,11 @@ bool PIDDriveController::update(Time dt) {
         
         case MotionType::ANGULAR: {
             // Calculate heading error (constrained to [-180, 180])
-            Angle headingError = units::constrainAngle180(currentPose.orientation - m_angularTarget);
+            // Positive error means we should turn in the positive direction.
+            Angle headingError = units::constrainAngle180(m_angularTarget - currentPose.orientation);
             
             // Calculate output from angular PID controller
-            Number angularOutput = m_angularController.calculate(to_stDeg(headingError), 0, to_msec(m_elapsedTime));
+            Number angularOutput = m_angularController.calculate(0.0, to_stDeg(headingError), to_msec(m_elapsedTime));
 
             // Add sign-aware static feedforward to overcome friction
             if (angularOutput != 0.0) {
@@ -286,8 +304,26 @@ bool PIDDriveController::update(Time dt) {
             }
             
             // Apply angular output to wheels (differential turning)
-            leftVoltage = -angularOutput;
-            rightVoltage = angularOutput;
+            switch (m_turnMode) {
+                case TurnMode::TANK:
+                    leftVoltage = -angularOutput;
+                    rightVoltage = angularOutput;
+                    break;
+                case TurnMode::SWING_LEFT:
+                    // Pivot about the right side (right stationary)
+                    leftVoltage = -2.0 * angularOutput;
+                    rightVoltage = 0.0;
+                    break;
+                case TurnMode::SWING_RIGHT:
+                    // Pivot about the left side (left stationary)
+                    leftVoltage = 0.0;
+                    rightVoltage = 2.0 * angularOutput;
+                    break;
+                default:
+                    leftVoltage = -angularOutput;
+                    rightVoltage = angularOutput;
+                    break;
+            }
             
             // Check if settled
             if (isAngularSettled(currentPose.orientation)) {

@@ -35,12 +35,10 @@ extern localization::ParticleFilter particleFilter;
 extern LeftOrRight autonStartingPosition;
 extern pros::ADIDigitalOut scraperPiston;
 extern pros::ADIDigitalOut WingLeft;
-extern pros::ADIDigitalOut WingRight;
 extern pros::ADIAnalogIn potSelector;
 
 extern lemlib::MotorGroup leftMotors;
 extern lemlib::MotorGroup rightMotors;
-extern pros::ADIDigitalOut Middle_Goal;
 extern pros::Distance leftSensor;
 extern pros::Distance rightSensor;
 
@@ -54,6 +52,10 @@ void autonPartnerSelfAWPRightSide();
 void autonPartnerSelfAWPLeftSide();
 void autonPartnerSelfAWPDialSide();
 void autonPartnerSelfAWP(LeftOrRight side);
+void autonPartnerSelfAWPDumb();
+void autonLongAndUpperGoal();
+void autonRushLower();
+void autonLongAndLowerGoal();
 void autonSkills();
 void autonSkillsRedSideOnly();
 void autonTwentyBallSkills();

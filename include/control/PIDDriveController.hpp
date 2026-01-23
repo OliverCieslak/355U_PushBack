@@ -103,6 +103,19 @@ public:
     using Point = units::Vector2D<Length>;
 
     /**
+     * @brief Turning mode for angular motions
+     *
+     * - TANK: left and right sides drive opposite directions.
+     * - SWING_LEFT: right side stays still; left side moves (pivot about right).
+     * - SWING_RIGHT: left side stays still; right side moves (pivot about left).
+     */
+    enum class TurnMode {
+        TANK,
+        SWING_LEFT,
+        SWING_RIGHT
+    };
+
+    /**
      * @brief Construct a new PID Drive Controller
      * 
      * @param leftMotors Left side motor group
@@ -146,7 +159,8 @@ public:
         Angle targetHeading,
         Number maxVoltage = 12.0,
         Time timeout = 3_sec,
-        bool waitUntilSettled = true
+        bool waitUntilSettled = true,
+        TurnMode turnMode = TurnMode::TANK
     );
     
     /**
@@ -162,7 +176,29 @@ public:
         Angle angle,
         Number maxVoltage = 12.0,
         Time timeout = 3_sec,
-        bool waitUntilSettled = true
+        bool waitUntilSettled = true,
+        TurnMode turnMode = TurnMode::TANK
+    );
+
+    /**
+     * @brief Turn to face a target point (x, y) using odometry
+     *
+     * Computes the heading from the current pose to the target point, then runs the
+     * angular PID turn.
+     *
+     * @param targetPoint Target point (field x,y)
+     * @param maxVoltage Maximum voltage to apply to motors
+     * @param timeout Maximum time to spend attempting to reach target
+     * @param waitUntilSettled Whether to block until motion is complete
+     * @param turnMode Tank turn or swing turn mode
+     * @return true if target was reached within timeout
+     */
+    bool turnToPoint(
+        const Point& targetPoint,
+        Number maxVoltage = 12.0,
+        Time timeout = 3_sec,
+        bool waitUntilSettled = true,
+        TurnMode turnMode = TurnMode::TANK
     );
     
     /**
@@ -376,6 +412,7 @@ private:
     bool m_isMoving = false;
     Length m_linearTarget = 0_m;
     Angle m_angularTarget = 0_stRad;
+    TurnMode m_turnMode = TurnMode::TANK;
     units::Pose m_poseTarget;
     Length m_initialDistance = 0_m;
     Angle m_initialHeading = 0_stRad;

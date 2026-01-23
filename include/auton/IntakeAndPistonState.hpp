@@ -12,7 +12,6 @@ extern antistall::AntistallMotor firstStageIntake;
 //extern lemlib::Motor basketChain;
 //extern antistall::AntistallMotor basketMotor;
 extern antistall::AntistallMotor secondStageIntake;
-extern pros::ADIDigitalOut WingRight;
 extern pros::ADIDigitalOut WingLeft;
 
 
@@ -55,7 +54,4 @@ void intakeAntiStallColorSort();
 
 void getAutonColorState();
 
-extern pros::Optical lowColorSortingSensor;
-extern pros::Optical topColorSortingSensor;
-extern pros::Optical autonColorSensor;
 extern ColorSortState colorSortState;
