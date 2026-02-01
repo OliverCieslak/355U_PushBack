@@ -106,6 +106,8 @@ void autonSevenBallLongGoal()
 
 void autonNineBallLongGoal()
 {
+
+    
     // Implement the nine ball long goal autonomous routine here
     Length x_start = (allianceColor == AllianceColor::RED) ? -57_in : 57_in;
     // We flip the sign of the starting Y coordinate based on Starting Position (Left/Right)
@@ -451,14 +453,14 @@ void autonLongAndLowerGoal()
     snailState = SnailState::Index; // Get ready to match load
     // scraperPiston.set_value(true);
     // pidDriveController.turnToHeading(from_cDeg(90), 9.0, .5_sec, true); // Really face the match loader
-    pidDriveController.driveDistance(17_in, 5.0, 1_sec, true); // Drive to match loader
+    pidDriveController.driveDistance(18.5_in, 7.0, 1_sec, true); // Drive to match loader
     // Print odometry pose for debugging
     {
         auto startPose = odometrySystem.getPose();
         printf("At MatchLoad x=%.2f y=%.2f hStd=%.1f hComp=%.1f\n",
                to_in(startPose.x), to_in(startPose.y), to_stDeg(startPose.orientation), to_cDeg(startPose.orientation));
     }
-    pros::delay(500);                                             // Match load
+    pros::delay(650);                                             // Match load
     pidDriveController.driveDistance(-35_in, 5.0, 2.0_sec, true); // Move to long goal
     // Print odometry pose for debugging
     {
@@ -468,7 +470,7 @@ void autonLongAndLowerGoal()
     }
     scraperPiston.set_value(false);
     snailState = SnailState::Long; // Score LG
-    pros::delay(500);
+    pros::delay(650);
     snailState = SnailState::Index;
 
     pidDriveController.driveDistance(21_in, 8.0, 1.75_sec, true); // Drive away from long goal
@@ -496,8 +498,8 @@ void autonLongAndLowerGoal()
     }
     pros::delay(250); // Intake 3 stack
 
-    pidDriveController.turnToHeading(from_cDeg(-129), 9.0, 1_sec, true);
-    pidDriveController.driveDistance(15_in, 6.0, 1_sec, true); // Drive to center goal
+    pidDriveController.turnToHeading(from_cDeg(-125), 9.0, 1_sec, true);
+    pidDriveController.driveDistance(8_in, 6.0, 1_sec, true); // Drive to center goal
     // Print odometry pose for debugging
     {
         auto startPose = odometrySystem.getPose();
