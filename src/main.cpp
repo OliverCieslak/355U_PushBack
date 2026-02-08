@@ -52,11 +52,11 @@ lemlib::V5InertialSensor imu(17);
 
 antistall::AntistallMotor secondStageIntake(-10, 200_rpm, 0.0_amp, 10.0_rpm, 0.5, 50, 3);
 
-antistall::AntistallMotor firstStageIntake(-1, 600_rpm, 0.17_amp, 0.17_rpm, .53, 50, 4);
+antistall::AntistallMotor firstStageIntake(1, 600_rpm, 0.0_amp, 0.0_rpm, .0, 0, 0);
 
-pros::ADIDigitalOut scraperPiston('G');
+pros::ADIDigitalOut scraperPiston('H');
 pros::ADIAnalogIn potSelector('D');
-pros::ADIDigitalOut WingLeft('H');
+pros::ADIDigitalOut WingLeft('G');
 
 // Set up distance sensors for particle filter      
 pros::Distance frontSensor(11);
@@ -109,14 +109,20 @@ Number kV = 0.0936319;					// Velocity feedforward (volts per velocity)
 Number kA = 0.035960933;				// Acceleration feedforward (volts per acceleration)
 */
 
-Number kS = 0.6994; 
-Number kV = 0.1457;					// Velocity feedforward (volts per velocity)
-Number kA = 0.023628;				// Acceleration feedforward (volts per acceleration)
+/*
+code = working
+bugs = none
+linde = fat
+*/
 
-double linearKp = .125;
+Number kS = 0.68316; 
+Number kV = 0.14606;					// Velocity feedforward (volts per velocity)
+Number kA = 0.026048;				// Acceleration feedforward (volts per acceleration)
+
+double linearKp = .175; 
 double linearKi = 0.0;
 double linearKd = 0.0;
-double angularKp = .15;
+double angularKp = .145;
 double angularKi = 0.0;
 double angularKd = 500.0;
 Mass robotMass = 13.0_lb;
@@ -189,11 +195,11 @@ rd::Selector selector({
 		// {"Odom Test", runOdomTest, "", 55},
 		// {"PF DS Calib", calibrateParticleFilterDistanceSensorPoses, "", 55},
 		//{"PF Test", runParticleFilterTest, "", 55},
-		 // {"Tune kS", tuneKs, "", 55},
-		 // {"Tune kV", tuneKv, "", 55},
-		 // {"Tune kA", tuneKa, "", 55},
-		// {"Manual Turn", manualTurnTest, "", 55},
-		// {"Manual Linear", manualLinearTest, "", 55},
+		  {"Tune kS", tuneKs, "", 55},
+		  {"Tune kV", tuneKv, "", 55},
+		  {"Tune kA", tuneKa, "", 55},
+		 {"Manual Turn", manualTurnTest, "", 55},
+		 {"Manual Linear", manualLinearTest, "", 55},
 		// {"Path Test", runPathTest, "", 55},
 });
 
@@ -497,7 +503,11 @@ void opcontrol()
 			scraperPiston.set_value(scraperDown); 
 			
 		}
-		
+		if(controller.get_digital_new_press(DIGITAL_Y)) {
+			scraperDown = !scraperDown;             // Toggle scraper state
+			scraperPiston.set_value(scraperDown); 
+			
+		}
 
 		pros::delay(20);
 	}
