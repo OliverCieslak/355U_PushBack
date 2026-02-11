@@ -9,6 +9,7 @@
 #include "utils/DistanceUtils.hpp"
 #include <functional>
 #include <memory>
+#include <vector>
 
 namespace control {
 
@@ -25,10 +26,16 @@ struct PIDDriveConfig {
     double linearKi;             // Integral gain for linear motion
     double linearKd;             // Derivative gain for linear motion
     
-    // Angular motion PID gains
+    // Angular motion PID gains (turn in place)
     double angularKp;            // Proportional gain for angular motion
     double angularKi;            // Integral gain for angular motion
     double angularKd;            // Derivative gain for angular motion
+
+    // Heading correction PID gains (keeps robot straight during linear drives).
+    // These are typically gentler than the turn-in-place angular gains.
+    double headingKp;            // Proportional gain for heading correction
+    double headingKi;            // Integral gain for heading correction
+    double headingKd;            // Derivative gain for heading correction
     
     // Feedforward constants
     Number kV;                   // Velocity feedforward constant (volts per velocity)
@@ -40,6 +47,9 @@ struct PIDDriveConfig {
 
     /**
      * @brief Construct a PID drive controller configuration with default values
+     *
+     * Heading correction gains default to the angular gains if not specified
+     * (negative sentinel value means "copy from angular").
      */
     PIDDriveConfig(
         Length trackWidth,
@@ -53,10 +63,16 @@ struct PIDDriveConfig {
         Number kV = 0.0,
         Number kS = 0.0,
         Length linearTolerance = .5_in,
-        Angle angularTolerance = 2_stDeg
+        Angle angularTolerance = 2_stDeg,
+        double headingKp = -1.0,
+        double headingKi = -1.0,
+        double headingKd = -1.0
     ) : trackWidth(trackWidth), wheelDiameter(wheelDiameter),
         linearKp(linearKp), linearKi(linearKi), linearKd(linearKd),
         angularKp(angularKp), angularKi(angularKi), angularKd(angularKd),
+        headingKp(headingKp < 0 ? angularKp : headingKp),
+        headingKi(headingKi < 0 ? angularKi : headingKi),
+        headingKd(headingKd < 0 ? angularKd : headingKd),
         kV(kV), kS(kS),
         linearTolerance(linearTolerance), angularTolerance(angularTolerance) {}
 };
@@ -242,6 +258,40 @@ public:
     );
 
     /**
+     * @brief Follow a path through a list of waypoints in smooth arcs
+     *
+     * The robot drives toward each waypoint in sequence, steering with the
+     * angular PID while driving forward with the linear PID.  When it gets
+     * within `switchDistance` of the current target, it advances to the next
+     * waypoint *without stopping*.  At the final waypoint, it slows down and
+     * settles normally.
+     *
+     * Optionally specify a final heading — the robot will do a turn-in-place
+     * after reaching the last point.
+     *
+     * @param waypoints      List of (x, y) points to drive through
+     * @param maxVoltage      Maximum voltage (default 12)
+     * @param timeout         Total timeout for the entire path
+     * @param reversed        Drive backward through the path
+     * @param switchDistance  Distance to next waypoint at which to advance
+     * @param waitUntilSettled Block until done
+     * @return true if path was completed within timeout
+     *
+     * Each waypoint is a Pose (x, y, orientation). The orientation at
+     * intermediate waypoints biases the heading as the robot passes through.
+     * The last waypoint's orientation is used for a final turn-in-place
+     * (set orientation to 999_stDeg to skip the final turn).
+     */
+    bool followPath(
+        const std::vector<units::Pose>& waypoints,
+        Number maxVoltage = 10.0,
+        Time timeout = 15_sec,
+        bool reversed = false,
+        Length switchDistance = 6_in,
+        bool waitUntilSettled = true
+    );
+
+    /**
      * @brief Drive to a specified pose with custom boomerang path parameters
      * 
      * @param targetPose Target pose
@@ -296,13 +346,26 @@ public:
     void setLinearGains(double kP, double kI, double kD);
     
     /**
-     * @brief Set new PID gains for angular motion
+     * @brief Set new PID gains for angular motion (turn in place)
      * 
      * @param kP Proportional gain
      * @param kI Integral gain
      * @param kD Derivative gain
      */
     void setAngularGains(double kP, double kI, double kD);
+
+    /**
+     * @brief Set new PID gains for heading correction during linear drives
+     * 
+     * These gains control how aggressively the robot corrects heading drift
+     * while driving straight.  They should typically be gentler than the
+     * turn-in-place angular gains.
+     *
+     * @param kP Proportional gain
+     * @param kI Integral gain
+     * @param kD Derivative gain
+     */
+    void setHeadingCorrectionGains(double kP, double kI, double kD);
     
     /**
      * @brief Set new feedforward constants
@@ -398,15 +461,17 @@ private:
     
     // PID controllers
     PID m_linearController;
-    PID m_angularController;
+    PID m_angularController;    // Used for turn-in-place, pose, and point modes
+    PID m_headingController;    // Used for heading correction during linear drives
     
     // Motion state
     enum class MotionType {
         NONE,
         LINEAR,
-    ANGULAR,
-    POSE,
-    POINT
+        ANGULAR,
+        POSE,
+        POINT,
+        PATH
     };
     MotionType m_motionType = MotionType::NONE;
     bool m_isMoving = false;
@@ -451,6 +516,13 @@ private:
     Number m_prevAngularOutput = 0.0;
     // POINT mode reverse flag
     bool m_pointReversed = false;
+
+    // PATH mode state
+    std::vector<units::Pose> m_pathWaypoints;
+    size_t m_pathIndex = 0;
+    Length m_pathSwitchDistance = 6_in;
+    bool m_pathReversed = false;
+    bool m_pathDoingFinalTurn = false;
     
     /**
      * @brief Check if the linear motion is settled

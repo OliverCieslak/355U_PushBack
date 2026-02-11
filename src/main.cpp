@@ -19,6 +19,7 @@
 #include "tuning/CharacterizationView.hpp"
 #include "tuning/FeedforwardTuner.hpp"
 #include "tuning/MotionProfileTuner.hpp"
+#include "tuning/PIDAutoTuner.hpp"
 #include "tuning/PIDDriveControllerTuner.hpp"
 #include "utils/DistanceUtils.hpp"
 #include "utils/FastMath.hpp"
@@ -99,8 +100,11 @@ units::Pose leftSensorPos(-4.5_in, 0_in, from_cDeg(90.0));
 units::Pose rightSensorPos(4.5_in, 0_in, from_cDeg(-90.0));
 units::Pose frontSensorPos(-4.0_in, 7.0_in, from_cDeg(0.0));
 
-// Setup configuration values - initial estimates that will be refined
-Length trackWidth = 13.5_in;		// Initial estimate for track width
+// Setup configuration values
+// Track width = center-to-center of wheel contact patches
+// Robot is 27 holes wide, drivepods are 5 holes wide
+// Track = (27 - 5) holes × 0.5"/hole = 11.0"
+Length trackWidth = 11.0_in;
 Length wheelDiameter = 2.75_in;     // Diameter of wheels
 // Number kS = 0.0;						// Static friction (volts)
 /*
@@ -122,9 +126,12 @@ Number kA = 0.026048;				// Acceleration feedforward (volts per acceleration)
 double linearKp = .175; 
 double linearKi = 0.0;
 double linearKd = 0.0;
-double angularKp = .145;
+double angularKp = .155;
 double angularKi = 0.0;
 double angularKd = 500.0;
+double headingKp = .165;  // Heading correction during straight-line drives
+double headingKi = 0.1;   // (separate from turn-in-place angular gains)
+double headingKd = 1.75;
 Mass robotMass = 13.0_lb;
 Torque driveTrainTorque = 2.1_Nm; // 6 motors at 0.35 Nm each
 
@@ -163,14 +170,14 @@ localization::ParticleFilter particleFilter(odometrySystem, initialPose, 1250);
 control::PIDDriveController pidDriveController(
 		leftMotors,
 		rightMotors,
-		{trackWidth, wheelDiameter, linearKp, linearKi, linearKd, angularKp, angularKi, angularKd, kV, kS},
+		{trackWidth, wheelDiameter, linearKp, linearKi, linearKd, angularKp, angularKi, angularKd, kV, kS, .5_in, 2_stDeg, headingKp, headingKi, headingKd},
 		[]()
 		{ return odometrySystem.getPose(); });
 
 control::PIDDriveController pidPfDriveController(
 		leftMotors,
 		rightMotors,
-		{trackWidth, wheelDiameter, linearKp, linearKi, linearKd, angularKp, angularKi, angularKd, kV, kS},
+		{trackWidth, wheelDiameter, linearKp, linearKi, linearKd, angularKp, angularKi, angularKd, kV, kS, .5_in, 2_stDeg, headingKp, headingKi, headingKd},
 		[]()
 		{ return particleFilter.getPose(); });
 
@@ -198,6 +205,7 @@ rd::Selector selector({
 		  {"Tune kS", tuneKs, "", 55},
 		  {"Tune kV", tuneKv, "", 55},
 		  {"Tune kA", tuneKa, "", 55},
+		 {"Autotune PID", tuning::autonAutoTunePID, "", 120},
 		 {"Manual Turn", manualTurnTest, "", 55},
 		 {"Manual Linear", manualLinearTest, "", 55},
 		// {"Path Test", runPathTest, "", 55},

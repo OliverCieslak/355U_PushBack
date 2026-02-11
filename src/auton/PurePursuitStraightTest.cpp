@@ -30,12 +30,16 @@ void purePursuitStraightTest() {
         kA,
         kS);
 
+    motion::PurePursuitConfig ppCfg;
+    ppCfg.lookahead = 8_in;
+    ppCfg.waypointTolerance = 1.5_in;
+
     static motion::PurePursuitController pp(
         leftMotors,
         rightMotors,
         driveConfig,
         [](){ return odometrySystem.getPose(); },
-        8_in, 1.5_in
+        ppCfg
     );
 
     pp.setStanleyGains(Number(0.3), 2_inps, Number(1.0));

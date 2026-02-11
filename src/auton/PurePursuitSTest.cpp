@@ -43,12 +43,16 @@ void purePursuitSTest() {
         kA,
         kS);
 
+    motion::PurePursuitConfig ppCfg;
+    ppCfg.lookahead = 8_in;
+    ppCfg.waypointTolerance = 1.5_in;
+
     static motion::PurePursuitController pp(
         leftMotors,
         rightMotors,
         driveConfig,
         [](){ return odometrySystem.getPose(); },
-        8_in, 1.5_in
+        ppCfg
     );
 
     pp.setRequireFinalHeading(true); // keep explicit to ensure heading enforced in this test

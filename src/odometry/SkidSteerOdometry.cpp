@@ -83,9 +83,10 @@ void SkidSteerOdometry::updateTaskTrampoline(void* param) {
 }
 
 void SkidSteerOdometry::taskUpdate() {
+    uint32_t now = pros::millis();
     while (m_isRunning) {
         update();
-        pros::delay(10); // 10ms delay between updates
+        pros::Task::delay_until(&now, 10); // wake every 10ms from last wake
     }
 }
 
@@ -127,15 +128,18 @@ units::Pose SkidSteerOdometry::update() {
     Length arcLength = (leftDistance + rightDistance) / 2.0;
     Angle arcAngle = currentHeading - m_pose.orientation;
     
-    // Calculate local movement
+    // Calculate local movement in the midpoint-heading frame
+    // When rotating by the midpoint angle (θ₀ + Δθ/2), the chord from
+    // start to end is purely along the forward axis of that frame:
+    //   chord = 2R·sin(Δθ/2) = s·sinc(Δθ/2)  where s = arc length
+    // The lateral component is exactly zero in the midpoint frame.
     units::Vector2D<Length> localMovement;
     
     if (units::abs(arcAngle) < 0.001_stDeg) {
         // Robot moved straight
         localMovement = {arcLength, 0_m};
     } else {
-        // Robot moved in an arc
-        // Use chord length formula: 2 * R * sin(θ/2) where R = arcLength / θ
+        // Robot moved in an arc — chord length in midpoint frame
         Length chordLength = arcLength * utils::sinc(arcAngle / 2.0);
         localMovement = {chordLength, 0_m};
     }
@@ -222,7 +226,7 @@ units::Vector2D<Length> SkidSteerOdometry::calculateDisplacement(
         return units::Vector2D<Length>(arcLength, 0_m);
     }
     
-    // Use chord length formula: chord = arc * sinc(θ/2)
+    // Chord length in the midpoint-heading frame (lateral = 0)
     Length chordLength = arcLength * utils::sinc(headingDelta / 2.0);
     return units::Vector2D<Length>(chordLength, 0_m);
 }

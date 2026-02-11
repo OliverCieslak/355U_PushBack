@@ -37,6 +37,10 @@ private:
     double errorDeadband;
     bool hasBounds;
     bool atSetpointFlag;
+    
+    // Derivative low-pass filter state
+    double filteredDerivative = 0.0;
+    double derivativeFilterAlpha = 0.5; // 0 = fully filtered, 1 = no filtering
 
 public:
     /**
@@ -63,6 +67,7 @@ public:
         lastInput = 0.0;
         previousTime = 0.0;
         lastSetpoint = 0.0;
+        filteredDerivative = 0.0;
         atSetpointFlag = false;
     }
     
@@ -146,7 +151,9 @@ public:
         
         // Derivative term (on measurement, not error, to avoid derivative kick)
         double dInput = (currentValue - lastInput) / dt;
-        double dTerm = -dInput * kD; // Note: negative because dInput goes opposite to error
+        // Apply low-pass filter to reduce noise amplification
+        filteredDerivative = derivativeFilterAlpha * dInput + (1.0 - derivativeFilterAlpha) * filteredDerivative;
+        double dTerm = -filteredDerivative * kD; // Note: negative because dInput goes opposite to error
         
         // Feedforward term from setpoint rate of change and static component
         double setpointDerivative = (setpoint - lastSetpoint) / dt;

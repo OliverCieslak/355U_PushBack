@@ -180,6 +180,7 @@ private:
     uint32_t m_performanceLogInterval = 5000; // 5 seconds
     uint32_t m_lastPerformanceLogTime = 0;
     uint32_t m_lastSensorLogTime = 0;  // Add timestamp for sensor log rate limiting
+    uint32_t m_lastSensorUpdateTime = 0; // Rate-gate sensor updates to V5 distance sensor refresh (~33ms)
     
     // Timing tracking (in microseconds)
     uint32_t m_motionUpdateTimeUs = 0;

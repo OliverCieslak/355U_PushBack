@@ -112,18 +112,6 @@ namespace localization
             currentOdomPose.y - m_lastOdometryPose.y,
             from_stDeg(to_stDeg(currentOdomPose.orientation) - to_stDeg(m_lastOdometryPose.orientation)));
 
-        // Check if it's time to log performance metrics
-        if (m_performanceLoggingEnabled)
-        {
-            m_updatesSinceLastLog++;
-            uint32_t currentTime = pros::millis();
-            if (currentTime - m_lastPerformanceLogTime >= m_performanceLogInterval)
-            {
-                std::cout << "Odometry Delta: (" << to_in(odometryDelta.x) << " in, " << to_in(odometryDelta.y) << " in, " << to_stDeg(odometryDelta.orientation) << " deg)\n";
-            }
-        }
-        
-
         m_lastOdometryPose = currentOdomPose;
 
         // Time motion update
@@ -131,9 +119,16 @@ namespace localization
         motionUpdate(odometryDelta);
         m_motionUpdateTimeUs = pros::micros() - motionStartTime;
 
-        // Apply sensor update if sensors are available
-        if (!m_sensors.empty())
+        // Apply sensor update only at the V5 distance sensor refresh rate (~33ms).
+        // Running sensor update more frequently than the hardware refresh rate
+        // triple-counts stale readings, artificially inflating confidence and
+        // collapsing particle diversity.
+        uint32_t nowMs = pros::millis();
+        bool sensorUpdateDue = !m_sensors.empty() && (nowMs - m_lastSensorUpdateTime >= 33);
+        if (sensorUpdateDue)
         {
+            m_lastSensorUpdateTime = nowMs;
+
             // Time sensor update
             uint32_t sensorStartTime = pros::micros();
             sensorUpdate();
@@ -203,46 +198,61 @@ namespace localization
 
     void ParticleFilter::motionUpdate(const units::Pose &odometryDelta)
     {
-        // Calculate position noise based on the magnitude of the movement
-        Length distanceMoved = units::sqrt(odometryDelta.x * odometryDelta.x + odometryDelta.y * odometryDelta.y);
+        // The odometry delta is in the GLOBAL frame (currentOdom - lastOdom).
+        // To correctly apply it to particles with different headings, we must:
+        //   1. Rotate the global delta into the odometry robot's local frame.
+        //   2. Add noise in the local frame.
+        //   3. Rotate by each particle's heading back to global.
+        //
+        // Step 1 uses the odometry heading (m_lastOdometryPose), computed once.
+        // Step 3 uses each particle's individual heading.
 
-        // Increase position noise a bit to allow more flexibility for sensor corrections
+        // Calculate position noise based on the magnitude of the movement
+        Length distanceMoved = units::sqrt(odometryDelta.x * odometryDelta.x +
+                                           odometryDelta.y * odometryDelta.y);
+
         Length positionNoise = 0_in;
         if (distanceMoved > 0.01_in)
         {
             positionNoise = 0.002_in + m_motionNoise * (distanceMoved / 1_in) * 1.5;
         }
 
-        // Reduce angle noise significantly since IMU is reliable for short periods
-        Angle reducedAngleNoise = m_angleNoise * 0.05; // Reduced from 0.1 to 0.05 to minimize angle drift
+        // Angle noise: allow enough heading spread for sensors to discriminate.
+        // With 4 distance sensors, the weight update will reward correct headings
+        // and punish wrong ones. We need enough spread for this to work.
+        // Base noise of 0.3× m_angleNoise (0.15° default) provides this.
+        Angle headingNoise = m_angleNoise * 0.3;
 
-        // Update each particle's position based on odometry and add noise
+        // Step 1: Rotate global delta into odometry robot's local frame
+        Angle odomHeading = m_lastOdometryPose.orientation;
+        double cosOdom = utils::fastCos(to_stRad(odomHeading));
+        double sinOdom = utils::fastSin(to_stRad(odomHeading));
+        // Inverse rotation (rotate by -odomHeading): local = R(-θ) * global
+        Length localDx =  odometryDelta.x * cosOdom + odometryDelta.y * sinOdom;
+        Length localDy = -odometryDelta.x * sinOdom + odometryDelta.y * cosOdom;
+
+        // Update each particle's position
         for (auto &particle : m_particles)
         {
-            // Rotate the delta to the particle's frame - pre-calculate trig values
-            Angle theta = particle.pose.orientation;
-            double cos_theta = utils::fastCos(to_stRad(theta));
-            double sin_theta = utils::fastSin(to_stRad(theta));
+            // Add noise in local frame
+            Length noisyLocalDx = localDx + positionNoise * utils::fastNormal(0.0, 1.0, m_rng);
+            Length noisyLocalDy = localDy + positionNoise * utils::fastNormal(0.0, 1.0, m_rng);
 
-            // This is the correct transformation from global to particle frame
-            Length dx_local = odometryDelta.x * cos_theta + odometryDelta.y * sin_theta;
-            Length dy_local = -odometryDelta.x * sin_theta + odometryDelta.y * cos_theta;
+            // Step 3: Rotate from local frame to global using particle's heading
+            double cosP = utils::fastCos(to_stRad(particle.pose.orientation));
+            double sinP = utils::fastSin(to_stRad(particle.pose.orientation));
+            Length dx_global = noisyLocalDx * cosP - noisyLocalDy * sinP;
+            Length dy_global = noisyLocalDx * sinP + noisyLocalDy * cosP;
 
-            // Add noise proportional to movement using fastNormal instead of m_normalDist
-            dx_local += positionNoise * utils::fastNormal(0.0, 1.0, m_rng);
-            dy_local += positionNoise * utils::fastNormal(0.0, 1.0, m_rng);
-
-            // Convert back to global frame for updating particle position
-            Length dx_global = dx_local * cos_theta - dy_local * sin_theta;
-            Length dy_global = dx_local * sin_theta + dy_local * cos_theta;
-
-            // Add orientation change with MINIMAL noise since IMU is reliable
+            // Add orientation change with noise proportional to rotation magnitude.
+            // Stationary: very small noise. Rotating: proportional noise.
             double rotationMagnitude = std::abs(to_stDeg(odometryDelta.orientation));
-            // Near-zero noise when stationary, slightly more when rotating
-            double noiseFactor = rotationMagnitude < 0.1 ? 0.001 : (rotationMagnitude < 1.0 ? 0.005 : 0.01);
+            // Base noise + proportional component
+            double noiseScale = 0.01 + rotationMagnitude * 0.02;
 
             Angle dtheta = odometryDelta.orientation +
-                           reducedAngleNoise * rotationMagnitude * noiseFactor * utils::fastNormal(0.0, 1.0, m_rng);
+                           headingNoise * noiseScale *
+                           utils::fastNormal(0.0, 1.0, m_rng);
 
             // Update the particle pose
             particle.pose.x += dx_global;
@@ -393,13 +403,12 @@ namespace localization
 
             // Add heading component - compare particle heading with odometry heading
             Angle headingError = from_stDeg(to_stDeg(particle.pose.orientation) - to_stDeg(odomHeading));
-            // Constrain to smallest angle difference (-180 to 180 degrees)
             headingError = units::constrainAngle180(headingError);
-            // Calculate heading weight using Gaussian model
             double headingErrorDeg = to_stDeg(headingError);
-            // Scale factor determines importance of heading (lower = more important)
-            const double HEADING_SCALE_FACTOR = 10.0;
-            double headingLogWeight = -1.0 * headingErrorDeg * headingErrorDeg * HEADING_SCALE_FACTOR;
+            // Gaussian log-likelihood: -e²/(2σ²)  with σ = 5° (IMU is good but not perfect)
+            const double HEADING_SIGMA_DEG = 5.0;
+            double headingLogWeight = -(headingErrorDeg * headingErrorDeg) /
+                                      (2.0 * HEADING_SIGMA_DEG * HEADING_SIGMA_DEG);
 
             // Add heading component to total weight
             logPositionWeight += headingLogWeight;
@@ -426,13 +435,17 @@ namespace localization
 
                 // Calculate sensor noise based on the measured distance (dynamic model)
                 Length sensorNoise = utils::calculateV5DistanceSensorNoise(actualMeasurement);
+                double sigmaIn = to_in(sensorNoise);
+                // Prevent division by zero
+                if (sigmaIn < 0.1) sigmaIn = 0.1;
 
                 double confidenceFactor = sensorScore.score;
 
-                // Calculate log probability (Gaussian model in log space)
+                // Gaussian log-likelihood: -e²/(2σ²), scaled by confidence
                 Length error = (actualMeasurement - expectedMeasurement);
-                Area errorSquared = error * error;
-                double logProbability = -1 * to_in2(errorSquared) * confidenceFactor;
+                double errorIn = to_in(error);
+                double logProbability = -(errorIn * errorIn) /
+                                        (2.0 * sigmaIn * sigmaIn) * confidenceFactor;
 
                 // Add to log position weight (multiplication becomes addition in log space)
                 logPositionWeight += logProbability;
@@ -566,19 +579,12 @@ namespace localization
         updatesSinceResample = 0; // Reset counter after resampling
         m_tempParticles.clear();  // Clear but keep capacity
 
-        // Get current odometry pose for accurate heading-aligned particles
-        units::Pose odomPose = m_odometry.getPose();
-
-        // Keep the top N% of particles directly (increased for single-sensor scenarios)
-        const double KEEP_PERCENTAGE = 0.35; // Increased from 0.20 for better single-sensor performance
+        // Keep the top N% of particles directly (elitism)
+        const double KEEP_PERCENTAGE = 0.20;
         size_t keepCount = static_cast<size_t>(m_numParticles * KEEP_PERCENTAGE);
         
-        // Always add some particles that respect the odometry heading
-        const double ODOM_ALIGNED_PERCENTAGE = 0.15; // 15% of particles will be odometry-heading aligned
-        size_t odomAlignedCount = static_cast<size_t>(m_numParticles * ODOM_ALIGNED_PERCENTAGE);
-        
-        // Calculate how many to resample normally
-        size_t resampleCount = m_numParticles - keepCount - odomAlignedCount;
+        // The rest are resampled via low-variance sampling
+        size_t resampleCount = m_numParticles - keepCount;
 
         // Sort particles by weight (only partially sort to get top keepCount)
         std::vector<size_t> indices(m_particles.size());
@@ -646,32 +652,7 @@ namespace localization
             m_tempParticles.push_back(m_particles[i]);
         }
 
-        // Add odometry-aligned particles (new section)
-        // These particles will have positions from existing particles but orientations close to odometry
-        for (size_t i = 0; i < odomAlignedCount; i++)
-        {
-            // Choose a particle to get position from (prefer from the best half)
-            size_t sourceIndex = static_cast<size_t>(m_rng() % (m_particles.size() / 2));
-            
-            // Create a new particle with similar position but heading aligned with odometry
-            units::Pose basePose = m_particles[sourceIndex].pose;
-            
-            // Small position variation
-            Length x = basePose.x + m_motionNoise * 0.5 * m_normalDist(m_rng);
-            Length y = basePose.y + m_motionNoise * 0.5 * m_normalDist(m_rng);
-            
-            // Very small heading variation from odometry (0.5 degree std dev)
-            Angle theta = units::constrainAngle180(from_stDeg(to_stDeg(odomPose.orientation) + to_stDeg(0.5_stDeg * m_normalDist(m_rng))));
-            
-            // Create new pose and constrain to field
-            units::Pose alignedPose(x, y, theta);
-            alignedPose = utils::constrainToField(alignedPose);
-            
-            // Add to particle set with uniform weight
-            m_tempParticles.emplace_back(alignedPose, 1.0 / m_numParticles);
-        }
-
-        // Add diversity when needed, but with much lower heading variance
+        // Add diversity when needed, but with moderate heading variance
         if (effectiveSampleSize < m_numParticles * 0.1)
         {
             const size_t numRandomParticles = m_numParticles * 0.05; // Add 5% random particles
@@ -695,16 +676,12 @@ namespace localization
                 Length x = m_estimatedPose.x + m_motionNoise * 5.0 * m_normalDist(m_rng);
                 Length y = m_estimatedPose.y + m_motionNoise * 5.0 * m_normalDist(m_rng);
                 
-                // Initialize theta with a default value, then conditionally update it
-                Angle theta = odomPose.orientation; // Initialize with odometry heading
-                
-                // Much lower heading variance for random particles, especially when stationary
-                if (isStationary) {
-                    // When stationary, very tightly constrain to odometry heading
-                    theta = units::constrainAngle180(from_stDeg(to_stDeg(odomPose.orientation) + to_stDeg(0.5_stDeg * m_normalDist(m_rng))));
-                } else {
-                    theta = units::constrainAngle180(from_stDeg(to_stDeg(m_estimatedPose.orientation) + to_stDeg(2_stDeg * m_normalDist(m_rng))));
-                }
+                // Heading: use estimated pose heading with moderate variance.
+                // Stationary gets tighter spread, moving gets wider to explore.
+                double headingSpreadDeg = isStationary ? 2.0 : 5.0;
+                Angle theta = units::constrainAngle180(
+                    from_stDeg(to_stDeg(m_estimatedPose.orientation) +
+                               headingSpreadDeg * m_normalDist(m_rng)));
                 
                 units::Pose randomPose(x, y, theta);
                 randomPose = utils::constrainToField(randomPose);
@@ -736,9 +713,6 @@ namespace localization
         double sinSum = 0.0;
         double cosSum = 0.0;
 
-        // Get the odometry pose to blend with particle filter pose
-        units::Pose odomPose = m_odometry.getPose();
-
         for (const auto &particle : m_particles)
         {
             double w = particle.weight;
@@ -760,14 +734,13 @@ namespace localization
             // Calculate weighted orientation from particles
             Angle particleTheta = from_stRad(std::atan2(sinSum, cosSum));
 
-            // Blend particle filter angle with odometry angle, strongly favoring odometry
-            const double ODOM_ANGLE_TRUST_FACTOR = 0.97; // Increased from 0.95 to 0.97 for even more trust in odometry/IMU angle
-
-            Angle blendedTheta = odomPose.orientation * ODOM_ANGLE_TRUST_FACTOR +
-                                 particleTheta * (1.0 - ODOM_ANGLE_TRUST_FACTOR);
-                                 
-            // For position, use particle filter's estimate which is influenced by sensors
-            return units::Pose(weightedX, weightedY, blendedTheta);
+            // Use the particle filter's weighted heading directly.
+            // Heading is already constrained by:
+            //   1. Tight motion noise (IMU-based short-term trust)
+            //   2. Heading Gaussian in weight update (σ=5°)
+            // With 4 distance sensors, the filter can observe and correct
+            // heading drift — don't override it with a hard odometry blend.
+            return units::Pose(weightedX, weightedY, particleTheta);
         }
 
         // Return last estimate if we can't calculate a new one
@@ -851,6 +824,7 @@ namespace localization
 
     void ParticleFilter::taskUpdate()
     {
+        uint32_t now = pros::millis();
         while (m_isRunning)
         {
             {
@@ -876,9 +850,7 @@ namespace localization
                             double theta = to_cDeg(particle.pose.orientation);
 
                             // Map weight to intensity for visualization
-                            // Calculate intensity such that even small weights are visible
-                            // but higher weights stand out more (logarithmic mapping)
-                            double relativeWeight = particle.weight / topParticles[0].weight; // Normalize to top particle
+                            double relativeWeight = particle.weight / topParticles[0].weight;
                             uint8_t intensity = static_cast<uint8_t>(std::min(255.0,
                                                                               100.0 + 155.0 * relativeWeight));
 
@@ -900,7 +872,7 @@ namespace localization
 
                 m_mutex.give();
             }
-            pros::delay(to_msec(m_updateInterval));
+            pros::Task::delay_until(&now, static_cast<uint32_t>(to_msec(m_updateInterval)));
         }
     }
 

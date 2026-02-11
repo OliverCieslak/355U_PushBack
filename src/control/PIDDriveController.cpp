@@ -15,6 +15,7 @@ PIDDriveController::PIDDriveController(
     m_poseProvider(poseProvider),
     m_linearController(config.linearKp, config.linearKi, config.linearKd),
     m_angularController(config.angularKp, config.angularKi, config.angularKd),
+    m_headingController(config.headingKp, config.headingKi, config.headingKd),
     m_previousPose(poseProvider()),  // Initialize previous pose
     m_linearSettleTimer(0_msec),
     m_angularSettleTimer(0_msec),
@@ -22,6 +23,12 @@ PIDDriveController::PIDDriveController(
 {
     m_linearController.setOutputLimits(-12.0, 12.0);
     m_angularController.setOutputLimits(-12.0, 12.0);
+    m_headingController.setOutputLimits(-12.0, 12.0);
+    
+    // Set integral windup limits to prevent overshooting
+    m_linearController.setIntegralLimit(50.0);
+    m_angularController.setIntegralLimit(30.0);
+    m_headingController.setIntegralLimit(30.0);
 }
 
 bool PIDDriveController::driveDistance(Length distance, Number maxVoltage, Time timeout, bool waitUntilSettled) {
@@ -44,14 +51,18 @@ bool PIDDriveController::driveDistance(Length distance, Number maxVoltage, Time 
     m_linearController.reset();
     m_angularController.reset();
     
+    // Reset settle timers
+    m_linearSettleTimer = 0_msec;
+    m_angularSettleTimer = 0_msec;
+    
     // Reset action execution flags
     m_actionScheduler.resetActions();
     
     // If waiting, loop until settled or timeout
     if (waitUntilSettled) {
-        const Time updateInterval = 10_msec;
-        while (update(updateInterval) && m_elapsedTime < m_timeout) {
-            pros::delay(10); // 10ms delay (matches updateInterval)
+        uint32_t now = pros::millis();
+        while (update(10_msec) && m_elapsedTime < m_timeout) {
+            pros::Task::delay_until(&now, 10);
         }
         
         return isSettled();
@@ -88,11 +99,60 @@ bool PIDDriveController::driveToPoint(const Point& targetPoint, Number maxVoltag
     m_actionScheduler.resetActions();
 
     if (waitUntilSettled) {
-        const Time updateInterval = 10_msec;
-        while (update(updateInterval) && m_elapsedTime < m_timeout) {
-            pros::delay(10);
+        uint32_t now = pros::millis();
+        while (update(10_msec) && m_elapsedTime < m_timeout) {
+            pros::Task::delay_until(&now, 10);
         }
         return isSettled();
+    }
+    return true;
+}
+
+bool PIDDriveController::followPath(
+    const std::vector<units::Pose>& waypoints,
+    Number maxVoltage,
+    Time timeout,
+    bool reversed,
+    Length switchDistance,
+    bool waitUntilSettled
+) {
+    if (waypoints.empty()) return false;
+
+    // Store path state
+    m_pathWaypoints = waypoints;
+    m_pathIndex = 0;
+    m_pathSwitchDistance = switchDistance;
+    m_pathReversed = reversed;
+    m_pathDoingFinalTurn = false;
+    m_maxVoltage = maxVoltage;
+    m_timeout = timeout;
+    m_elapsedTime = 0_sec;
+
+    // Reset distance tracking
+    m_accumulatedDistance = 0_in;
+    m_previousPose = m_poseProvider();
+
+    // Set motion type
+    m_motionType = MotionType::PATH;
+    m_isMoving = true;
+
+    // Reset controllers
+    m_linearController.reset();
+    m_angularController.reset();
+
+    // Reset settle timers
+    m_linearSettleTimer = 0_msec;
+    m_angularSettleTimer = 0_msec;
+
+    // Reset action execution flags
+    m_actionScheduler.resetActions();
+
+    if (waitUntilSettled) {
+        uint32_t now = pros::millis();
+        while (update(10_msec) && m_elapsedTime < m_timeout) {
+            pros::Task::delay_until(&now, 10);
+        }
+        return !m_isMoving; // true if we finished (not timed out while still moving)
     }
     return true;
 }
@@ -121,14 +181,18 @@ bool PIDDriveController::turnToHeading(
     m_linearController.reset();
     m_angularController.reset();
     
+    // Reset settle timers
+    m_linearSettleTimer = 0_msec;
+    m_angularSettleTimer = 0_msec;
+    
     // Reset action execution flags
     m_actionScheduler.resetActions();
     
     // If waiting, loop until settled or timeout
     if (waitUntilSettled) {
-        const Time updateInterval = 10_msec;
-        while (update(updateInterval) && m_elapsedTime < m_timeout) {
-            pros::delay(10); // 10ms delay (matches updateInterval)
+        uint32_t now = pros::millis();
+        while (update(10_msec) && m_elapsedTime < m_timeout) {
+            pros::Task::delay_until(&now, 10);
         }
         
         return isSettled();
@@ -184,14 +248,18 @@ bool PIDDriveController::driveToPoseBoomerang(
     m_linearController.reset();
     m_angularController.reset();
     
+    // Reset settle timers
+    m_linearSettleTimer = 0_msec;
+    m_angularSettleTimer = 0_msec;
+    
     // Reset action execution flags
     m_actionScheduler.resetActions();
     
     // If waiting, loop until settled or timeout
     if (waitUntilSettled) {
-        const Time updateInterval = 10_msec;
-        while (update(updateInterval) && m_elapsedTime < m_timeout) {
-            pros::delay(10); // 10ms delay (matches updateInterval)
+        uint32_t now = pros::millis();
+        while (update(10_msec) && m_elapsedTime < m_timeout) {
+            pros::Task::delay_until(&now, 10);
         }
         
         return isSettled();
@@ -219,7 +287,7 @@ bool PIDDriveController::update(Time dt) {
     units::Pose currentPose = m_poseProvider();
     
     // Update accumulated distance
-    if (m_motionType == MotionType::LINEAR || m_motionType == MotionType::POSE || m_motionType == MotionType::POINT) {
+    if (m_motionType == MotionType::LINEAR || m_motionType == MotionType::POSE || m_motionType == MotionType::POINT || m_motionType == MotionType::PATH) {
         m_accumulatedDistance += currentPose.distanceTo(m_previousPose);
         m_previousPose = currentPose;
     }
@@ -244,6 +312,11 @@ bool PIDDriveController::update(Time dt) {
             totalDistance = m_previousPose.distanceTo(ptPose);
             break;
         }
+        case MotionType::PATH:
+            if (!m_pathWaypoints.empty()) {
+                totalDistance = m_previousPose.distanceTo(m_pathWaypoints.back());
+            }
+            break;
         default:
             totalDistance = 0_in;
     }
@@ -268,9 +341,9 @@ bool PIDDriveController::update(Time dt) {
             
             // Calculate outputs from PID controllers
             Number linearOutput = m_linearController.calculate(0.0, to_in(linearError), to_msec(m_elapsedTime));
-            Number headingCorrection = m_angularController.calculate(to_stDeg(headingError), 0, to_msec(m_elapsedTime));
-            // Limit headingCorrection to ±10% of linearOutput
-            Number maxCorrection = std::abs(linearOutput) * 0.10;
+            Number headingCorrection = m_headingController.calculate(to_stDeg(headingError), 0, to_msec(m_elapsedTime));
+            // Limit headingCorrection to ±25% of linearOutput
+            Number maxCorrection = std::abs(linearOutput) * 0.25;
             if (headingCorrection > maxCorrection) headingCorrection = maxCorrection;
             if (headingCorrection < -maxCorrection) headingCorrection = -maxCorrection;
             
@@ -547,6 +620,113 @@ bool PIDDriveController::update(Time dt) {
             }
             break;
         }
+
+        case MotionType::PATH: {
+            // --- Multi-waypoint arc follower with pose waypoints ---
+            // If doing a final turn-in-place after reaching the last point:
+            if (m_pathDoingFinalTurn) {
+                Angle headingError = units::constrainAngle180(m_angularTarget - currentPose.orientation);
+                Number angularOutput = m_angularController.calculate(0.0, to_stDeg(headingError), to_msec(m_elapsedTime));
+                leftVoltage = -angularOutput;
+                rightVoltage = angularOutput;
+                if (isAngularSettled(currentPose.orientation)) {
+                    stop();
+                    return false;
+                }
+                break;
+            }
+
+            // Current target waypoint (a full Pose)
+            const units::Pose& target = m_pathWaypoints[m_pathIndex];
+            bool isLastWaypoint = (m_pathIndex == m_pathWaypoints.size() - 1);
+
+            // Distance and heading to current target
+            Length distToTarget = currentPose.distanceTo(target);
+            Angle headingToTarget = currentPose.angleTo(target);
+
+            // Advance to next waypoint if close enough (unless it's the last one)
+            if (!isLastWaypoint && distToTarget <= m_pathSwitchDistance) {
+                m_pathIndex++;
+                // Reset angular PID to prevent derivative kick on target switch
+                m_angularController.reset();
+                break; // re-evaluate on next cycle with new target
+            }
+
+            // Heading error (flip 180° if driving in reverse)
+            Angle adjustedOrientation = m_pathReversed
+                ? (currentPose.orientation + 180_stDeg)
+                : currentPose.orientation;
+
+            // Blend toward waypoint's desired orientation as we get closer.
+            // Far away: steer purely toward the point.  Close: bias toward
+            // the waypoint's specified heading (if one was given).
+            bool waypointHasHeading = (std::abs(to_stDeg(target.orientation)) < 900.0);
+            Angle desiredHeading = headingToTarget; // default: aim at point
+
+            if (waypointHasHeading) {
+                // Blend factor: 1.0 when at switchDistance, 0.0 when far away
+                Number blend = 1.0 - units::clamp(
+                    to_in(distToTarget) / to_in(m_pathSwitchDistance), 0.0, 1.0);
+                // Weighted average of "aim at point" and "desired orientation"
+                Angle orientationDelta = units::constrainAngle180(target.orientation - headingToTarget);
+                desiredHeading = headingToTarget + orientationDelta * blend;
+            }
+
+            Angle angularError = units::constrainAngle180(adjustedOrientation - desiredHeading);
+
+            // Linear output — PID drives distance to zero
+            Number linearOutput = m_linearController.calculate(0, to_in(distToTarget), to_msec(m_elapsedTime));
+            linearOutput = m_pathReversed ? -std::abs(linearOutput) : std::abs(linearOutput);
+
+            // For non-last waypoints, enforce a minimum forward speed so the
+            // robot doesn't stop and do a point turn at each waypoint
+            if (!isLastWaypoint) {
+                Number minSpeed = m_maxVoltage * 0.25; // 25% forward minimum
+                if (!m_pathReversed && linearOutput < minSpeed) linearOutput = minSpeed;
+                if (m_pathReversed && linearOutput > -minSpeed) linearOutput = -minSpeed;
+            }
+
+            // Angular output — PID steers toward target
+            Number headingCorrection = m_angularController.calculate(to_stDeg(angularError), 0, to_msec(m_elapsedTime));
+
+            // When close to the last waypoint, limit heading correction
+            if (isLastWaypoint && distToTarget < 6_in) {
+                Number maxCorr = std::abs(linearOutput) * 0.15;
+                headingCorrection = units::clamp(headingCorrection, -maxCorr, maxCorr);
+            }
+
+            // Feedforward
+            LinearVelocity estVel = LinearVelocity(linearOutput / 12.0 * 2.0);
+            linearOutput = applyFeedforward(linearOutput, estVel);
+
+            // Desaturate and scale to voltage
+            Number latCmd = units::clamp(linearOutput / m_maxVoltage, -1.0, 1.0);
+            Number angCmd = units::clamp(headingCorrection / m_maxVoltage, -1.0, 1.0);
+            auto [lCmd, rCmd] = desaturate(latCmd, angCmd);
+            leftVoltage = lCmd * m_maxVoltage;
+            rightVoltage = rCmd * m_maxVoltage;
+
+            // Check if we've reached the final waypoint
+            if (isLastWaypoint && distToTarget <= m_config.linearTolerance) {
+                m_linearSettleTimer += 10_msec;
+                if (m_linearSettleTimer >= m_requiredSettleTime) {
+                    // Check if the last waypoint wants a specific final heading
+                    if (std::abs(to_stDeg(target.orientation)) < 900.0) {
+                        // Switch to final turn mode
+                        m_pathDoingFinalTurn = true;
+                        m_angularTarget = target.orientation;
+                        m_angularController.reset();
+                        m_angularSettleTimer = 0_msec;
+                        break;
+                    }
+                    stop();
+                    return false;
+                }
+            } else {
+                m_linearSettleTimer = 0_msec;
+            }
+            break;
+        }
         
         case MotionType::NONE:
         default:
@@ -603,6 +783,18 @@ bool PIDDriveController::isSettled() const {
             return isPoseSettled(currentPose);
         case MotionType::POINT:
             return const_cast<PIDDriveController*>(this)->isPointSettled(currentPose);
+        case MotionType::PATH: {
+            // PATH settles when update() sets m_isMoving = false via stop()
+            // If doing final turn, check angular settle
+            if (m_pathDoingFinalTurn) {
+                return const_cast<PIDDriveController*>(this)->isAngularSettled(currentPose.orientation);
+            }
+            // Otherwise check if we're at the last waypoint
+            if (!m_pathWaypoints.empty()) {
+                return currentPose.distanceTo(m_pathWaypoints.back()) <= m_config.linearTolerance;
+            }
+            return true;
+        }
         case MotionType::NONE:
         default:
             return true;
@@ -621,6 +813,13 @@ void PIDDriveController::setAngularGains(double kP, double kI, double kD) {
     m_config.angularKi = kI;
     m_config.angularKd = kD;
     m_angularController.setGains(kP, kI, kD);
+}
+
+void PIDDriveController::setHeadingCorrectionGains(double kP, double kI, double kD) {
+    m_config.headingKp = kP;
+    m_config.headingKi = kI;
+    m_config.headingKd = kD;
+    m_headingController.setGains(kP, kI, kD);
 }
 
 void PIDDriveController::setFeedforwardConstants(Number kV, Number kS) {

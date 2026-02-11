@@ -144,13 +144,16 @@ void runPathTest() {
     };
 
     printf("Creating Pure Pursuit controller\n");
+    motion::PurePursuitConfig ppCfg;
+    ppCfg.lookahead = 8_in;
+    ppCfg.waypointTolerance = 2_in;
+
     static motion::PurePursuitController pp(
         leftMotors,
         rightMotors,
         driveConfig,
         poseProvider,
-        8_in,  // lookahead
-        2_in   // tolerance
+        ppCfg
     );
     pp.setStanleyGains(Number(0.3), 2_inps, Number(1.0));
 
