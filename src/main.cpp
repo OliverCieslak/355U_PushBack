@@ -60,10 +60,10 @@ pros::ADIAnalogIn potSelector('D');
 pros::ADIDigitalOut WingLeft('G');
 
 // Set up distance sensors for particle filter      
-pros::Distance frontSensor(11);
-pros::Distance rightSensor(21);
-pros::Distance backSensor(17);
-pros::Distance leftSensor(7);
+pros::Distance frontSensor(5);
+pros::Distance rightSensor(5);
+pros::Distance backSensor(5);
+pros::Distance leftSensor(5);
 
 bool MiddleState = false; // Flag to track PTO state
 bool scraperDown = false;
