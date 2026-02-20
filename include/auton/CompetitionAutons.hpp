@@ -18,6 +18,11 @@ enum class LeftOrRight {
     RIGHT = 1
 };
 
+enum class UpperOrLower {
+    UPPER,
+    LOWER
+};
+
 extern Length trackWidth;
 extern Length wheelDiameter;
 extern Number kS;
@@ -33,28 +38,20 @@ extern control::PIDDriveController pidPfDriveController;
 extern odometry::SkidSteerOdometry odometrySystem;
 extern localization::ParticleFilter particleFilter;
 extern LeftOrRight autonStartingPosition;
-extern pros::ADIDigitalOut scraperPiston;
-extern pros::ADIDigitalOut WingLeft;
-extern pros::ADIAnalogIn potSelector;
+extern pros::adi::DigitalOut scraperPiston;
+extern pros::adi::DigitalOut WingLeft;
+extern pros::adi::AnalogIn potSelector;
 
 extern lemlib::MotorGroup leftMotors;
 extern lemlib::MotorGroup rightMotors;
 extern pros::Distance leftSensor;
 extern pros::Distance rightSensor;
 
-void autonSevenBallLongGoal();
-void autonSevenBallLongGoalAltLeftSide();
-void autonSevenBallLongGoalAltRightSide();
-void autonSevenBallLongGoalAltDialSide();
-void autonSevenBallLongGoalAlt(LeftOrRight side);
-void autonNineBallLongGoal();
-void autonPartnerSelfAWPRightSide();
-void autonPartnerSelfAWPLeftSide();
-void autonPartnerSelfAWPDialSide();
-void autonPartnerSelfAWP(LeftOrRight side);
 void autonPartnerSelfAWPDumb();
 void autonLongAndUpperGoal();
 void autonRushLower();
+void autonRushLowerMatchLoaderAlleyEnd();
+void autonRushUpper();
 void autonLongAndLowerGoal();
 void autonSkills();
 void autonSkillsRedSideOnly();
@@ -62,6 +59,7 @@ void autonTwentyBallSkills();
 void purePursuitTest();
 void purePursuitStraightTest();
 void purePursuitSTest();
-
+void movementTest();
 void manualTurnTest();
 void manualLinearTest();
+void matchLoadToLongGoalStart (uint32_t t0);

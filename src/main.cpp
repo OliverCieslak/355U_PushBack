@@ -47,19 +47,22 @@ pros::MotorGroup prosRightMotors({RIGHT_MOTOR_1, RIGHT_MOTOR_2, RIGHT_MOTOR_3}, 
 lemlib::MotorGroup leftMotors({LEFT_MOTOR_1, LEFT_MOTOR_2, LEFT_MOTOR_3}, 600_rpm);
 lemlib::MotorGroup rightMotors({RIGHT_MOTOR_1, RIGHT_MOTOR_2, RIGHT_MOTOR_3}, 600_rpm);
 
-lemlib::V5InertialSensor imu(17);
+lemlib::V5InertialSensor imu(14);
 
 // Snail motors for intake and scoring
 
-antistall::AntistallMotor secondStageIntake(-10, 200_rpm, 0.0_amp, 10.0_rpm, 0.5, 50, 3);
+// antistall::AntistallMotor secondStageIntake(-10, 200_rpm, 0.0_amp, 10.0_rpm, 0.5, 50, 3);
+//                                               port  rpm    stallI   stallV  revPow revDur retries debounce chkInt pause cooldown
+antistall::AntistallMotor secondStageIntake(-10, 600_rpm, 2.0_amp, 10.0_rpm, 1.0, 300, 5, 5, 20, 50, 300);
 
-antistall::AntistallMotor firstStageIntake(1, 600_rpm, 0.0_amp, 0.0_rpm, .0, 0, 0);
+// antistall::AntistallMotor firstStageIntake(1, 600_rpm, 4.0_amp, 0.0_rpm, .8, 150, 101);
+antistall::AntistallMotor firstStageIntake(-7, 600_rpm, 1.0_amp, 1.0_rpm, .2, 100, 1, 1, 20, 50, 300);
 
-pros::ADIDigitalOut scraperPiston('H');
-pros::ADIAnalogIn potSelector('D');
-pros::ADIDigitalOut WingLeft('G');
+pros::adi::DigitalOut scraperPiston('H');
+pros::adi::AnalogIn potSelector('D');
+pros::adi::DigitalOut WingLeft('G');
 
-// Set up distance sensors for particle filter      
+// Set up distance sensors for particle filter
 pros::Distance frontSensor(5);
 pros::Distance rightSensor(5);
 pros::Distance backSensor(5);
@@ -69,23 +72,10 @@ bool MiddleState = false; // Flag to track PTO state
 bool scraperDown = false;
 AllianceColor allianceColor = AllianceColor::RED;
 SnailState snailState = SnailState::OFF;
-WingState wingState = WingState::DOWN;
+WingState wingState = WingState::LEFTUP;
 ColorSortState colorSortState = ColorSortState::OFF;
 LeftOrRight autonStartingPosition = LeftOrRight::LEFT; // Default starting position
 
- // Initial state of the conveyor
-// Anti-stall variables for firstStageISecond
-uint32_t lastAntiStallTime = 0;
-bool isJiggling = false;
-bool jiggleDirection = true; // true = forward, false = backward
-uint32_t jiggleStartTime = 0;	 
-int jiggleCount = 0;
-
-// Anti-stall variables for basketChain
-bool isJiggling2 = false;
-bool jiggleDirection2 = true; // true = forward, false = backward
-uint32_t jiggleStartTime2 = 0;
-int jiggleCount2 = 0;
 // Flag to track if the conveyor is spinning
 // Create a controller instance for user input
 pros::Controller controller(pros::E_CONTROLLER_MASTER);
@@ -105,10 +95,10 @@ units::Pose frontSensorPos(-4.0_in, 7.0_in, from_cDeg(0.0));
 // Robot is 27 holes wide, drivepods are 5 holes wide
 // Track = (27 - 5) holes × 0.5"/hole = 11.0"
 Length trackWidth = 11.0_in;
-Length wheelDiameter = 2.75_in;     // Diameter of wheels
+Length wheelDiameter = 2.817_in; // Calibrated wheel diameter (nominal 2.75 × 49/47.84)
 // Number kS = 0.0;						// Static friction (volts)
 /*
-Number kS = 0.4217; 
+Number kS = 0.4217;
 Number kV = 0.0936319;					// Velocity feedforward (volts per velocity)
 Number kA = 0.035960933;				// Acceleration feedforward (volts per acceleration)
 */
@@ -119,19 +109,19 @@ bugs = none
 linde = fat
 */
 
-Number kS = 0.68316; 
-Number kV = 0.14606;					// Velocity feedforward (volts per velocity)
-Number kA = 0.026048;				// Acceleration feedforward (volts per acceleration)
+Number kS = 0.68316;
+Number kV = 0.14606;  // Velocity feedforward (volts per velocity)
+Number kA = 0.026048; // Acceleration feedforward (volts per acceleration)
 
-double linearKp = .175; 
+double linearKp = .175;
 double linearKi = 0.0;
 double linearKd = 0.0;
 double angularKp = .155;
 double angularKi = 0.0;
 double angularKd = 500.0;
-double headingKp = .165;  // Heading correction during straight-line drives
-double headingKi = 0.1;   // (separate from turn-in-place angular gains)
-double headingKd = 1.75;
+double headingKp = .1;	// Heading correction during straight-line drives
+double headingKi = 0.0; // (separate from turn-in-place angular gains)
+double headingKd = 0;
 Mass robotMass = 13.0_lb;
 Torque driveTrainTorque = 2.1_Nm; // 6 motors at 0.35 Nm each
 
@@ -143,7 +133,7 @@ LinearAcceleration maxAccel = accelerationSafetyFactor * ((driveTrainTorque / (w
 
 // Maximum centripetal acceleration calculation
 // 1. Calculate friction-limited centripetal acceleration (slip constraint)
-double frictionCoefficient = 0.6;																	 // Typical rubber wheels on competition surface
+double frictionCoefficient = 0.6;								   // Typical rubber wheels on competition surface
 LinearAcceleration maxAccelSlip = frictionCoefficient * 9.81_mps2; // μ × g
 
 // 2. Calculate tipping-limited centripetal acceleration
@@ -158,57 +148,58 @@ LinearAcceleration maxCentripetalAccel = centripetalSafetyFactor * std::min(maxA
 units::Pose initialPose(0_in, 0_in, 0_cDeg); // Initial pose of the robot
 // Create the odometry instance for tracking robot position
 odometry::SkidSteerOdometry odometrySystem(
-		leftMotors,
-		rightMotors,
-		imu,
-		trackWidth,
-		wheelDiameter,
-		initialPose);
-
+	leftMotors,
+	rightMotors,
+	imu,
+	trackWidth,
+	wheelDiameter,
+	initialPose);
 localization::ParticleFilter particleFilter(odometrySystem, initialPose, 1250);
 
 control::PIDDriveController pidDriveController(
-		leftMotors,
-		rightMotors,
-		{trackWidth, wheelDiameter, linearKp, linearKi, linearKd, angularKp, angularKi, angularKd, kV, kS, .5_in, 2_stDeg, headingKp, headingKi, headingKd},
-		[]()
-		{ return odometrySystem.getPose(); });
+	leftMotors,
+	rightMotors,
+	{trackWidth, wheelDiameter, linearKp, linearKi, linearKd, angularKp, angularKi, angularKd, kV, kS, .5_in, 2_stDeg, headingKp, headingKi, headingKd},
+	[]()
+	{ return odometrySystem.getPose(); });
 
 control::PIDDriveController pidPfDriveController(
-		leftMotors,
-		rightMotors,
-		{trackWidth, wheelDiameter, linearKp, linearKi, linearKd, angularKp, angularKi, angularKd, kV, kS, .5_in, 2_stDeg, headingKp, headingKi, headingKd},
-		[]()
-		{ return particleFilter.getPose(); });
-
+	leftMotors,
+	rightMotors,
+	{trackWidth, wheelDiameter, linearKp, linearKi, linearKd, angularKp, angularKi, angularKd, kV, kS, .5_in, 2_stDeg, headingKp, headingKi, headingKd},
+	[]()
+	{ return particleFilter.getPose(); });
 rd::Selector selector({
-		 // {"7 Ball", autonSevenBallLongGoal, "", 240},
-		 // {"Alt 7 Ball Dial Side", autonSevenBallLongGoalAltDialSide, "", 240},
-		 // {"Partner SelfAWP Dial Side", autonPartnerSelfAWPDialSide, "", 240},
-		 // {"Red Skills", autonSkillsRedSideOnly, "", 120},
-		 // {"Skills", autonSkills, "", 240},
-		 {"Upper Side", autonLongAndUpperGoal, "", 120},
-		 {"Rush Lower", autonRushLower, "", 90},
-		 {"Partner SelfAWP Dumb", autonPartnerSelfAWPDumb, "", 120},
-		 {"Lower Side", autonLongAndLowerGoal, "", 120},
-		 {"20 Skills", autonTwentyBallSkills, "", 240},
-		 // {"9 Ball", autonNineBallLongGoal, "", 240},
-		 // {"PP Full Path", purePursuitTest, "", 240},
-		 // {"PP Straight", purePursuitStraightTest, "", 120},
-		 // {"PP S Curve", purePursuitSTest, "", 180},
-		 // {"CG Only", autonCenterGoalOnly, "", 240},
-		 // {"LZ LG CG", autonLoadingZoneLongGoalCenterGoal, "", 240},
-		// {"Gen Path Test", genPathTest, "", 55},
-		// {"Odom Test", runOdomTest, "", 55},
-		// {"PF DS Calib", calibrateParticleFilterDistanceSensorPoses, "", 55},
-		//{"PF Test", runParticleFilterTest, "", 55},
-		  {"Tune kS", tuneKs, "", 55},
-		  {"Tune kV", tuneKv, "", 55},
-		  {"Tune kA", tuneKa, "", 55},
-		 {"Autotune PID", tuning::autonAutoTunePID, "", 120},
-		 {"Manual Turn", manualTurnTest, "", 55},
-		 {"Manual Linear", manualLinearTest, "", 55},
-		// {"Path Test", runPathTest, "", 55},
+	// {"7 Ball", autonSevenBallLongGoal, "", 240},
+	// {"Alt 7 Ball Dial Side", autonSevenBallLongGoalAltDialSide, "", 240},
+	// {"Partner SelfAWP Dial Side", autonPartnerSelfAWPDialSide, "", 240},
+	// {"Red Skills", autonSkillsRedSideOnly, "", 120},
+	// {"Skills", autonSkills, "", 240},
+	{"Upper Side", autonLongAndUpperGoal, "", 120},
+	{"Rush Lower", autonRushLower, "", 90},
+	{"Rush Upper", autonRushUpper, "", 90},
+	{"Rush Lower ML - Alley", autonRushLowerMatchLoaderAlleyEnd, "", 90},
+	{"Partner SelfAWP Dumb", autonPartnerSelfAWPDumb, "", 120},
+	{"Lower Side", autonLongAndLowerGoal, "", 120},
+	{"20 Skills", autonTwentyBallSkills, "", 240},
+	// {"9 Ball", autonNineBallLongGoal, "", 240},
+	// {"PP Full Path", purePursuitTest, "", 240},
+	// {"PP Straight", purePursuitStraightTest, "", 120},
+	// {"PP S Curve", purePursuitSTest, "", 180},
+	// {"CG Only", autonCenterGoalOnly, "", 240},
+	// {"LZ LG CG", autonLoadingZoneLongGoalCenterGoal, "", 240},
+	// {"Gen Path Test", genPathTest, "", 55},
+	// {"Odom Test", runOdomTest, "", 55},
+	// {"PF DS Calib", calibrateParticleFilterDistanceSensorPoses, "", 55},
+	//{"PF Test", runParticleFilterTest, "", 55},
+	//{"Tune kS", tuneKs, "", 55},
+	//{"Tune kV", tuneKv, "", 55},
+	//{"Tune kA", tuneKa, "", 55},
+	//{"Autotune PID", tuning::autonAutoTunePID, "", 120},
+	//{"Manual Turn", manualTurnTest, "", 55},
+	// {"Manual Linear", manualLinearTest, "", 55},
+	// {"Path Test", runPathTest, "", 55},
+	{"Movement Test", movementTest, "", 55},
 });
 
 viz::FieldView fieldView;
@@ -223,19 +214,19 @@ viz::DiagnosticsView diagnosticsView;
  */
 void initialize()
 {
-	wingState = WingState::DOWN;
-	prosLeftMotors.tare_position(); 
-	prosRightMotors.tare_position(); 
-	prosLeftMotors.set_zero_position(0); 
-	prosRightMotors.set_zero_position(0); 
-	leftMotors.setAngle(0_stDeg); 
-	rightMotors.setAngle(0_stDeg); 
-	secondStageIntake.setBrakeMode(lemlib::BrakeMode::COAST); 
-	
-	firstStageIntake.setBrakeMode(lemlib::BrakeMode::COAST); 
+
+	prosLeftMotors.tare_position();
+	prosRightMotors.tare_position();
+	prosLeftMotors.set_zero_position(0);
+	prosRightMotors.set_zero_position(0);
+	leftMotors.setAngle(0_stDeg);
+	rightMotors.setAngle(0_stDeg);
+	secondStageIntake.setBrakeMode(lemlib::BrakeMode::COAST);
+	firstStageIntake.setBrakeMode(lemlib::BrakeMode::COAST);
 
 	// Selector callback example, prints selected auton to the console
 	selector.sd_load();
+	/*
 	selector.on_select([](std::optional<rd::Selector::routine_t> routine)
 										 {
 		driverControl.setDriveMode(control::DriveMode::ARCADE);
@@ -259,7 +250,7 @@ void initialize()
 				driverControl.setDriveMode(control::DriveMode::TANK);
 			}
 		} });
-
+	*/
 	if (!imu.isConnected())
 	{
 		controller.rumble("---");
@@ -276,6 +267,7 @@ void initialize()
 
 	std::cout << "Initializing robot...Done!" << std::endl;
 
+	/*
 	// Add distance sensors
 	particleFilter.addDistanceSensor(
 			0,							// ID
@@ -324,19 +316,20 @@ void initialize()
 			{
 				return utils::calculateExpectedDistance(pose, rightSensorPos);
 			});
-
-	pros::Task myAsyncControlTask([]{
+*/
+	pros::Task myAsyncControlTask([]
+								  {
 	  uint32_t lastTimeRun = pros::millis();
 	  while (true)
 	  {
 		 intakeAntiStallColorSort();
 		 firstStageIntake.doAntistall();
+		 secondStageIntake.doAntistall();
 		 //tophood.doAntistall();
 		 //basketChain.doAntistall();
-		 //secondStageIntake.doAntistall();
-		 pros::c::task_delay_until(&lastTimeRun, 10);
-	  }
-	});
+		 // pros::c::task_delay_until(&lastTimeRun, 10);
+		 pros::delay(5);
+	  } });
 }
 
 // Helper function to transform a sensor pose from robot-relative to field coordinates
@@ -346,7 +339,10 @@ void initialize()
  * the VEX Competition Switch, following either autonomous or opcontrol. When
  * the robot is enabled, this task will exit.
  */
-void disabled() {}
+void disabled()
+{
+	wingState = WingState::DOWN;
+}
 
 /**
  * Runs after initialize(), and before autonomous when connected to the Field
@@ -357,30 +353,13 @@ void disabled() {}
  * This task will exit when the robot is enabled and autonomous or opcontrol
  * starts.
  */
-void competition_initialize() {
-	int rightSensorDistance = rightSensor.get_distance();
-	int leftSensorDistance = leftSensor.get_distance();
-
-	//if(rightSensorDistance > 0 && leftSensorDistance > 0) {
-		//if(rightSensorDistance < leftSensorDistance) {
-			//autonStartingPosition = LeftOrRight::RIGHT;
-		//} else {
-			//autonStartingPosition = LeftOrRight::LEFT;
-		//}
-	//}
-
-	//if(rightSensorDistance > 1300 && rightSensorDistance < 1450) {
-			//autonStartingPosition = LeftOrRight::RIGHT;
-		//} 
-	//else if(leftSensorDistance > 1300 && leftSensorDistance < 1450) {
-			//autonStartingPosition = LeftOrRight::LEFT;
-		//}
-
+void competition_initialize()
+{
+	WingLeft.set_value(MiddleState);
 }
 
 void getAutonColorState()
 {
-		
 }
 
 /**
@@ -401,23 +380,7 @@ void autonomous()
 	// Capture start time for autonomous routine execution
 	uint32_t autonStartMs = pros::millis();
 
-	// probably did not connect in the right order
-	int rightSensorDistance = rightSensor.get_distance();
-	int leftSensorDistance = leftSensor.get_distance();
-
-	/*std::cout << "Right Sensor Distance: " << rightSensorDistance << " mm, Left Sensor Distance: " << leftSensorDistance << " mm" << std::endl;
-	if(rightSensorDistance > 0 && leftSensorDistance > 0) {
-		if(rightSensorDistance > 1300 && rightSensorDistance < 1450) {
-			autonStartingPosition = LeftOrRight::RIGHT;
-		} else if(leftSensorDistance > 1300 && leftSensorDistance < 1450) {
-			autonStartingPosition = LeftOrRight::LEFT;
-		} else {
-			std::cout << "Could not determine auton starting position from distance sensors, hardcoding to RIGHT" << std::endl;
-			autonStartingPosition = LeftOrRight::RIGHT;
-		}
-	}*/
-	selector.run_auton(); 
-	// tuneKs();  // Run kS tuning directly
+	selector.run_auton();
 
 	// Compute and report total autonomous execution time
 	uint32_t autonEndMs = pros::millis();
@@ -444,9 +407,12 @@ void opcontrol()
 	// Set motor brake modes
 	leftMotors.setBrakeMode(lemlib::BrakeMode::COAST);
 	rightMotors.setBrakeMode(lemlib::BrakeMode::COAST);
-	if(diagnosticsView.getDriveMode() == control::DriveMode::ARCADE) {
+	if (diagnosticsView.getDriveMode() == control::DriveMode::ARCADE)
+	{
 		currentDriveMode = control::DriveMode::ARCADE;
-	} else {
+	}
+	else
+	{
 		currentDriveMode = control::DriveMode::ARCADE;
 	}
 	driverControl.setDriveMode(currentDriveMode);
@@ -461,60 +427,52 @@ void opcontrol()
 		// R1 - Score in the Long Goal
 		// R2 - Score in the Upper Center Goal
 		// The thread running intakeAntistallColorSort handles the motor control
-		// based on snailState.	
-		if (controller.get_digital(DIGITAL_L1)) {
+		// based on snailState.
+		if (controller.get_digital(DIGITAL_L1))
+		{
 			snailState = SnailState::Index;
-		} else if (controller.get_digital(DIGITAL_L2)) {
+		}
+		else if (controller.get_digital(DIGITAL_L2))
+		{
 			snailState = SnailState::Out;
-		} else if (controller.get_digital(DIGITAL_R1)) {
+		}
+		else if (controller.get_digital(DIGITAL_R1))
+		{
 			snailState = SnailState::Long;
-		} else if (controller.get_digital(DIGITAL_R2)) {	
+		}
+		else if (controller.get_digital(DIGITAL_R2))
+		{
 			snailState = SnailState::Middle;
-		} else {
+		}
+		else
+		{
 			snailState = SnailState::OFF; // No buttons pressed, stop the intake and scoring motors
 		}
-		if(controller.get_digital_new_press(DIGITAL_DOWN)) {
-
-			if (wingState == WingState::LEFTUP) {
-				wingState = WingState::RIGHTUP;
-			
-			} 
-			else if (wingState == WingState::RIGHTUP) 
+		// Wing: hold to deploy (DOWN), release to retract (UP)
+		if (controller.get_digital_new_press(DIGITAL_DOWN) || controller.get_digital_new_press(DIGITAL_RIGHT))
+		{
+			if (wingState == WingState::LEFTUP)
+			{
+				wingState = WingState::DOWN;
+			}
+			else if (wingState == WingState::DOWN)
 			{
 				wingState = WingState::LEFTUP;
-
 			}
-			else if (wingState == WingState::DOWN) {
-				wingState = WingState::LEFTUP;
-			}
-		}
-		//basically i made the wings work on bottom and right, and shifted the uhh parking thing to the left one.
-
-
-		if(controller.get_digital_new_press(DIGITAL_RIGHT)) {
-
-			if (wingState == WingState::LEFTUP) {
-				wingState = WingState::RIGHTUP;
-			
-			} 
-			else if (wingState == WingState::RIGHTUP) 
-			{
-				wingState = WingState::LEFTUP;
-
-			}
-			else if (wingState == WingState::DOWN) {
-				wingState = WingState::LEFTUP;
-			}
-		}
-		if(controller.get_digital_new_press(DIGITAL_B)) {
-			scraperDown = !scraperDown;             // Toggle scraper state
-			scraperPiston.set_value(scraperDown); 
+	
 			
 		}
-		if(controller.get_digital_new_press(DIGITAL_Y)) {
-			scraperDown = !scraperDown;             // Toggle scraper state
-			scraperPiston.set_value(scraperDown); 
-			
+
+
+		if (controller.get_digital_new_press(DIGITAL_B))
+		{
+			scraperDown = !scraperDown; // Toggle scraper state
+			scraperPiston.set_value(scraperDown);
+		}
+		if (controller.get_digital_new_press(DIGITAL_Y))
+		{
+			scraperDown = !scraperDown; // Toggle scraper state
+			scraperPiston.set_value(scraperDown);
 		}
 
 		pros::delay(20);

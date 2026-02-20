@@ -14,7 +14,7 @@ void autonSkills()
     rightMotors.setBrakeMode(lemlib::BrakeMode::BRAKE);
 
     // snailState = SnailState::Index; // Only the first stage on
-    firstStageIntake.setMaxJiggleCycles(33);
+    firstStageIntake.setMaxRetries(10);
 
     pidDriveController.driveDistance(33_in, 6.0, 4_sec, true); // Drive to the match loader
     pidDriveController.turnToHeading(90_cDeg, 8.0, 2_sec, true);
@@ -79,10 +79,10 @@ void autonSkillsRedSideOnly()
     rightMotors.setBrakeMode(lemlib::BrakeMode::BRAKE);
 
     snailState = SnailState::Index; // Only the first stage on
-    firstStageIntake.setMaxJiggleCycles(33);
+    firstStageIntake.setMaxRetries(10);
 
         // snailState = SnailState::Index; // Only the first stage on
-    firstStageIntake.setMaxJiggleCycles(33);
+    firstStageIntake.setMaxRetries(10);
 
     pidDriveController.driveDistance(33_in, 6.0, 4_sec, true); // Drive to the match loader
     pidDriveController.turnToHeading(90_cDeg, 7.0, 2.5_sec, true);
@@ -138,7 +138,7 @@ void autonTwentyBallSkills()
     rightMotors.setBrakeMode(lemlib::BrakeMode::BRAKE);
 
     snailState = SnailState::Index; // Only the first stage on
-    firstStageIntake.setMaxJiggleCycles(33);
+    firstStageIntake.setMaxRetries(10);
 
     // Example sequence of movements (to be replaced with actual routine)
     pidDriveController.driveDistance(6_in, 9.0, .5_sec, true); // Drive forward

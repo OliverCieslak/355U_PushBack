@@ -8,21 +8,13 @@ extern antistall::AntistallMotor firstStageIntake;
 
 
 //extern lemlib::Motor firstStageIntake;
-//extern lemlib::Motor SecondStageIntake;
+extern antistall::AntistallMotor secondStageIntake;
 //extern lemlib::Motor basketChain;
 //extern antistall::AntistallMotor basketMotor;
-extern antistall::AntistallMotor secondStageIntake;
-extern pros::ADIDigitalOut WingLeft;
+extern pros::adi::DigitalOut WingLeft;
 
 
 extern double conveyorSpin;
-// Anti-stall variables for firstStageIntake
-extern uint32_t lastAntiStallTime;
-extern bool isJiggling;
-extern bool jiggleDirection;
-extern uint32_t jiggleStartTime;
-extern int jiggleCount;
-
 
 enum class WingState {
     LEFTUP = -1,

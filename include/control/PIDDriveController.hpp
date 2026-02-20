@@ -216,6 +216,27 @@ public:
         bool waitUntilSettled = true,
         TurnMode turnMode = TurnMode::TANK
     );
+
+    /**
+     * @brief Turn so the robot's back faces a target point
+     *
+     * Computes the heading from the current pose to the target point, adds 180°,
+     * then turns to that heading. Recalculates each loop iteration to account for drift.
+     *
+     * @param targetPoint Target point (field x,y)
+     * @param maxVoltage Maximum voltage to apply to motors
+     * @param timeout Maximum time to spend attempting to reach target
+     * @param waitUntilSettled Whether to block until motion is complete
+     * @param turnMode Tank turn or swing turn mode
+     * @return true if target was reached within timeout
+     */
+    bool turnAwayFromPoint(
+        const Point& targetPoint,
+        Number maxVoltage = 12.0,
+        Time timeout = 3_sec,
+        bool waitUntilSettled = true,
+        TurnMode turnMode = TurnMode::TANK
+    );
     
     /**
      * @brief Drive to a specified pose (position and heading)
@@ -516,6 +537,10 @@ private:
     Number m_prevAngularOutput = 0.0;
     // POINT mode reverse flag
     bool m_pointReversed = false;
+    // ANGULAR mode: track a point (recalculate heading each iteration)
+    bool m_turnToPointActive = false;
+    bool m_turnToPointReversed = false; // true = back faces the point
+    Point m_turnToPointTarget;
 
     // PATH mode state
     std::vector<units::Pose> m_pathWaypoints;

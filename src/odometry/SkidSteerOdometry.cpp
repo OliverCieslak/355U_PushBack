@@ -115,14 +115,6 @@ units::Pose SkidSteerOdometry::update() {
     Length wheelRadius = m_wheelDiameter / 2.0;
     Length leftDistance = to_stRad(leftDelta) * wheelRadius;
     Length rightDistance = to_stRad(rightDelta) * wheelRadius;
-    
-    // Filter out tiny movements (noise)
-    if (units::abs(leftDistance) < 0.2_mm && units::abs(rightDistance) < 0.2_mm) {
-        m_prevLeftPosition = currentLeftPosition;
-        m_prevRightPosition = currentRightPosition;
-        m_prevHeading = currentHeading;
-        return m_pose;
-    }
 
     // Use pure geometric approach - no scaling factors
     Length arcLength = (leftDistance + rightDistance) / 2.0;

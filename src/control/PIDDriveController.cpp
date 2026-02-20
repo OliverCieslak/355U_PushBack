@@ -208,10 +208,27 @@ bool PIDDriveController::turnAngle(Angle angle, Number maxVoltage, Time timeout,
 }
 
 bool PIDDriveController::turnToPoint(const Point& targetPoint, Number maxVoltage, Time timeout, bool waitUntilSettled, TurnMode turnMode) {
+    m_turnToPointActive = true;
+    m_turnToPointReversed = false;
+    m_turnToPointTarget = targetPoint;
     units::Pose currentPose = m_poseProvider();
     units::Pose targetPose{targetPoint.x, targetPoint.y, 0_stRad};
     Angle headingToTarget = currentPose.angleTo(targetPose);
-    return turnToHeading(headingToTarget, maxVoltage, timeout, waitUntilSettled, turnMode);
+    bool result = turnToHeading(headingToTarget, maxVoltage, timeout, waitUntilSettled, turnMode);
+    m_turnToPointActive = false;
+    return result;
+}
+
+bool PIDDriveController::turnAwayFromPoint(const Point& targetPoint, Number maxVoltage, Time timeout, bool waitUntilSettled, TurnMode turnMode) {
+    m_turnToPointActive = true;
+    m_turnToPointReversed = true;
+    m_turnToPointTarget = targetPoint;
+    units::Pose currentPose = m_poseProvider();
+    units::Pose targetPose{targetPoint.x, targetPoint.y, 0_stRad};
+    Angle headingToTarget = currentPose.angleTo(targetPose) + 180_stDeg;
+    bool result = turnToHeading(headingToTarget, maxVoltage, timeout, waitUntilSettled, turnMode);
+    m_turnToPointActive = false;
+    return result;
 }
 
 // Update the existing driveToPose method
@@ -364,6 +381,12 @@ bool PIDDriveController::update(Time dt) {
         }
         
         case MotionType::ANGULAR: {
+            // If tracking a point, recalculate target heading each iteration
+            if (m_turnToPointActive) {
+                units::Pose pointPose{m_turnToPointTarget.x, m_turnToPointTarget.y, 0_stRad};
+                m_angularTarget = currentPose.angleTo(pointPose);
+                if (m_turnToPointReversed) m_angularTarget += 180_stDeg;
+            }
             // Calculate heading error (constrained to [-180, 180])
             // Positive error means we should turn in the positive direction.
             Angle headingError = units::constrainAngle180(m_angularTarget - currentPose.orientation);
@@ -425,19 +448,26 @@ bool PIDDriveController::update(Time dt) {
             Number linearOutput = m_linearController.calculate(0, to_in(linearError), to_msec(m_elapsedTime));
             // Enforce motion direction: negative when reversing, positive otherwise
             linearOutput = m_pointReversed ? -std::abs(linearOutput) : std::abs(linearOutput);
-            Number headingCorrection = m_angularController.calculate(to_stDeg(angularError), 0, to_msec(m_elapsedTime));
+            Number headingCorrection = m_headingController.calculate(to_stDeg(angularError), 0, to_msec(m_elapsedTime));
 
             // Add sign-aware static feedforward to heading correction
             if (headingCorrection != 0.0) {
                 headingCorrection += units::sgn(headingCorrection) * m_config.kS;
             }
 
-            // When close to the target point, limit heading correction to 10% of linear output
-            if (distanceToTarget < 6_in) {
-                Number maxCorrection = std::abs(linearOutput) * 0.10;
-                if (headingCorrection > maxCorrection) headingCorrection = maxCorrection;
-                if (headingCorrection < -maxCorrection) headingCorrection = -maxCorrection;
+            // Limit heading correction relative to linear output to prevent oscillation.
+            // Scale the cap based on how far off-heading we are: allow more correction
+            // when the heading error is large, but clamp tightly when roughly on-target.
+            double absAngErr = std::abs(to_stDeg(angularError));
+            // Base cap: 40% of linear output, dropping to 15% when within 6 inches
+            Number capRatio = (distanceToTarget < 6_in) ? 0.15 : 0.40;
+            // Further reduce cap when heading error is small (< 15 deg) to prevent jitter
+            if (absAngErr < 15.0) {
+                capRatio *= (absAngErr / 15.0);
+                capRatio = std::max(capRatio, Number(0.05)); // floor so it can still correct
             }
+            Number maxCorrection = std::abs(linearOutput) * capRatio;
+            headingCorrection = units::clamp(headingCorrection, -maxCorrection, maxCorrection);
 
             // Apply feedforward to linear output similar to LINEAR mode
             LinearVelocity estimatedVelocity = LinearVelocity(linearOutput / 12.0 * 2.0);
@@ -509,15 +539,13 @@ bool PIDDriveController::update(Time dt) {
             
             // Calculate angular error
             Angle angularError = [&] {
-                // Adjust orientation if driving in reverse
-                Angle adjustedOrientation = m_boomerangConfig.reversed ? 
-                    currentPose.orientation + 180_stDeg : currentPose.orientation;
-                
                 if (m_isCloseToTarget) {
-                    // When close, target the final orientation
-                    return units::constrainAngle180(adjustedOrientation - m_poseTarget.orientation);
+                    // When close, settle to final heading WITHOUT reverse offset
+                    return units::constrainAngle180(currentPose.orientation - m_poseTarget.orientation);
                 } else {
-                    // During approach, target the carrot point
+                    // During approach, adjust for reverse so robot's back faces the carrot
+                    Angle adjustedOrientation = m_boomerangConfig.reversed ? 
+                        currentPose.orientation + 180_stDeg : currentPose.orientation;
                     return units::constrainAngle180(adjustedOrientation - currentPose.angleTo(carrot));
                 }
             }();
@@ -558,7 +586,12 @@ bool PIDDriveController::update(Time dt) {
             
             // Get angular output from PID controller
             Number angularOutput = [&] {
-                Number output = m_angularController.calculate(to_stDeg(angularError), 0, to_msec(m_elapsedTime));
+                Number output = m_headingController.calculate(to_stDeg(angularError), 0, to_msec(m_elapsedTime));
+                
+                // Boost heading output for curve tracking (headingKp alone is too gentle)
+                // Use less boost when close to target to prevent whip-around on final heading match
+                double boost = m_isCloseToTarget ? 1.2 : 2.5;
+                output *= boost;
                 
                 // Restrict maximum speed
                 output = units::clamp(output / 12.0, -m_boomerangConfig.maxAngularSpeed, m_boomerangConfig.maxAngularSpeed);
