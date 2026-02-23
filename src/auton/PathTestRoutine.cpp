@@ -10,7 +10,7 @@ extern lemlib::MotorGroup rightMotors;
 extern pros::MotorGroup prosLeftMotors;
 extern pros::MotorGroup prosRightMotors;
 extern lemlib::V5InertialSensor imu;
-extern odometry::SkidSteerOdometry odometrySystem;
+extern odometry::OneWheelOdometry odometrySystem;
 
 extern Length trackWidth;
 extern Length wheelDiameter;

@@ -1,7 +1,9 @@
 #pragma once
 
-#include "odometry/SkidSteerOdometry.hpp"
-#include "viz/FieldView.hpp"
+#include "odometry/OneWheelOdometry.hpp"
 
 // Function to test Odometry
 void runOdomTest();
+
+// Spin in place to calibrate horizontal tracking wheel offset
+void runSpinCalibration();

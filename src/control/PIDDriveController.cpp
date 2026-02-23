@@ -8,11 +8,13 @@ PIDDriveController::PIDDriveController(
     lemlib::MotorGroup& leftMotors,
     lemlib::MotorGroup& rightMotors,
     const PIDDriveConfig& config,
-    std::function<units::Pose()> poseProvider
+    std::function<units::Pose()> poseProvider,
+    std::function<std::pair<LinearVelocity, AngularVelocity>()> velocityProvider
 ) : m_leftMotors(leftMotors),
     m_rightMotors(rightMotors),
     m_config(config),
     m_poseProvider(poseProvider),
+    m_velocityProvider(velocityProvider),
     m_linearController(config.linearKp, config.linearKi, config.linearKd),
     m_angularController(config.angularKp, config.angularKi, config.angularKd),
     m_headingController(config.headingKp, config.headingKi, config.headingKd),
@@ -357,16 +359,18 @@ bool PIDDriveController::update(Time dt) {
             Length linearError = m_linearTarget - signedDistance;
             
             // Calculate outputs from PID controllers
-            Number linearOutput = m_linearController.calculate(0.0, to_in(linearError), to_msec(m_elapsedTime));
+            // Pass -error as measurement (setpoint=0) so derivative-on-measurement tracks error changes
+            Number linearOutput = m_linearController.calculate(-to_in(linearError), 0.0, to_msec(m_elapsedTime));
             Number headingCorrection = m_headingController.calculate(to_stDeg(headingError), 0, to_msec(m_elapsedTime));
-            // Limit headingCorrection to ±25% of linearOutput
-            Number maxCorrection = std::abs(linearOutput) * 0.25;
+            // Limit headingCorrection to ±50% of linearOutput
+            Number maxCorrection = std::abs(linearOutput) * 0.50;
             if (headingCorrection > maxCorrection) headingCorrection = maxCorrection;
             if (headingCorrection < -maxCorrection) headingCorrection = -maxCorrection;
             
-            // Apply feedforward to linear output
-            LinearVelocity estimatedVelocity = LinearVelocity(linearOutput / 12.0 * 2.0);
-            linearOutput = applyFeedforward(linearOutput, estimatedVelocity);
+            // No velocity feedforward for simple driveDistance — it creates positive
+            // feedback that fights deceleration.  Feedforward is only appropriate for
+            // trajectory / path following where we have a planned velocity profile.
+            // Static friction is overcome by Kp being large enough.
             
             // Calculate wheel voltages
             leftVoltage = linearOutput - headingCorrection;
@@ -392,11 +396,19 @@ bool PIDDriveController::update(Time dt) {
             Angle headingError = units::constrainAngle180(m_angularTarget - currentPose.orientation);
             
             // Calculate output from angular PID controller
-            Number angularOutput = m_angularController.calculate(0.0, to_stDeg(headingError), to_msec(m_elapsedTime));
+            // Pass -error as measurement (setpoint=0) so derivative-on-measurement tracks error changes
+            Number angularOutput = m_angularController.calculate(-to_stDeg(headingError), 0.0, to_msec(m_elapsedTime));
 
-            // Add sign-aware static feedforward to overcome friction
-            if (angularOutput != 0.0) {
-                angularOutput += units::sgn(angularOutput) * m_config.kS;
+            // Tapered static friction feedforward: full kS when far from target,
+            // linearly fading to zero within a deadband so it doesn't prevent
+            // fine settling near the target heading.
+            {
+                double absErr = std::abs(to_stDeg(headingError));
+                constexpr double kS_fadeStart = 3.0; // deg — full kS above this
+                double kS_scale = std::min(absErr / kS_fadeStart, 1.0);
+                if (angularOutput != 0.0) {
+                    angularOutput += units::sgn(angularOutput) * m_config.kS * kS_scale;
+                }
             }
             
             // Apply angular output to wheels (differential turning)
@@ -445,7 +457,7 @@ bool PIDDriveController::update(Time dt) {
             Angle angularError = units::constrainAngle180(adjustedOrientation - headingToTarget);
 
             // PID outputs
-            Number linearOutput = m_linearController.calculate(0, to_in(linearError), to_msec(m_elapsedTime));
+            Number linearOutput = m_linearController.calculate(-to_in(linearError), 0.0, to_msec(m_elapsedTime));
             // Enforce motion direction: negative when reversing, positive otherwise
             linearOutput = m_pointReversed ? -std::abs(linearOutput) : std::abs(linearOutput);
             Number headingCorrection = m_headingController.calculate(to_stDeg(angularError), 0, to_msec(m_elapsedTime));
@@ -469,8 +481,11 @@ bool PIDDriveController::update(Time dt) {
             Number maxCorrection = std::abs(linearOutput) * capRatio;
             headingCorrection = units::clamp(headingCorrection, -maxCorrection, maxCorrection);
 
-            // Apply feedforward to linear output similar to LINEAR mode
-            LinearVelocity estimatedVelocity = LinearVelocity(linearOutput / 12.0 * 2.0);
+            // Use actual measured velocity for feedforward so kS knows which way we're going
+            LinearVelocity estimatedVelocity = 0_inps;
+            if (m_velocityProvider) {
+                estimatedVelocity = m_velocityProvider().first;
+            }
             linearOutput = applyFeedforward(linearOutput, estimatedVelocity);
 
             // Normalize and desaturate like boomerang path does
@@ -604,7 +619,7 @@ bool PIDDriveController::update(Time dt) {
             // Get lateral output from PID controller
             Number lateralOutput = [&] {
                 // Get output from PID
-                Number output = m_linearController.calculate(0, to_in(lateralError), to_msec(m_elapsedTime));
+                Number output = m_linearController.calculate(-to_in(lateralError), 0.0, to_msec(m_elapsedTime));
                 
                 // Normalize to -1..1 range and restrict maximum speed
                 output = units::clamp(output / 12.0, -m_boomerangConfig.maxLateralSpeed, m_boomerangConfig.maxLateralSpeed);
@@ -659,7 +674,7 @@ bool PIDDriveController::update(Time dt) {
             // If doing a final turn-in-place after reaching the last point:
             if (m_pathDoingFinalTurn) {
                 Angle headingError = units::constrainAngle180(m_angularTarget - currentPose.orientation);
-                Number angularOutput = m_angularController.calculate(0.0, to_stDeg(headingError), to_msec(m_elapsedTime));
+                Number angularOutput = m_angularController.calculate(-to_stDeg(headingError), 0.0, to_msec(m_elapsedTime));
                 leftVoltage = -angularOutput;
                 rightVoltage = angularOutput;
                 if (isAngularSettled(currentPose.orientation)) {
@@ -708,7 +723,7 @@ bool PIDDriveController::update(Time dt) {
             Angle angularError = units::constrainAngle180(adjustedOrientation - desiredHeading);
 
             // Linear output — PID drives distance to zero
-            Number linearOutput = m_linearController.calculate(0, to_in(distToTarget), to_msec(m_elapsedTime));
+            Number linearOutput = m_linearController.calculate(-to_in(distToTarget), 0.0, to_msec(m_elapsedTime));
             linearOutput = m_pathReversed ? -std::abs(linearOutput) : std::abs(linearOutput);
 
             // For non-last waypoints, enforce a minimum forward speed so the
@@ -728,8 +743,11 @@ bool PIDDriveController::update(Time dt) {
                 headingCorrection = units::clamp(headingCorrection, -maxCorr, maxCorr);
             }
 
-            // Feedforward
-            LinearVelocity estVel = LinearVelocity(linearOutput / 12.0 * 2.0);
+            // Measured velocity for feedforward - way better than the old voltage-based guess
+            LinearVelocity estVel = 0_inps;
+            if (m_velocityProvider) {
+                estVel = m_velocityProvider().first;
+            }
             linearOutput = applyFeedforward(linearOutput, estVel);
 
             // Desaturate and scale to voltage

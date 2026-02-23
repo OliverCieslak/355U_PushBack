@@ -1,7 +1,7 @@
 {
   "py/object": "pros.conductor.project.Project",
   "py/state": {
-    "project_name": "355U_Ollie",
+    "project_name": "Ollie",
     "target": "v5",
     "templates": {
       "hardware": {

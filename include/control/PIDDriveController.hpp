@@ -143,7 +143,8 @@ public:
         lemlib::MotorGroup& leftMotors,
         lemlib::MotorGroup& rightMotors,
         const PIDDriveConfig& config,
-        std::function<units::Pose()> poseProvider
+        std::function<units::Pose()> poseProvider,
+        std::function<std::pair<LinearVelocity, AngularVelocity>()> velocityProvider = nullptr
     );
 
     /**
@@ -479,6 +480,7 @@ private:
     lemlib::MotorGroup& m_rightMotors;
     PIDDriveConfig m_config;
     std::function<units::Pose()> m_poseProvider;
+    std::function<std::pair<LinearVelocity, AngularVelocity>()> m_velocityProvider;
     
     // PID controllers
     PID m_linearController;

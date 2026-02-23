@@ -1,6 +1,5 @@
 #include "tuning/MotionProfileTuner.hpp"
 
-extern tuning::CharacterizationView characterizationView;
 extern lemlib::MotorGroup leftMotors;
 extern lemlib::MotorGroup rightMotors;
 extern pros::MotorGroup prosLeftMotors;
@@ -19,7 +18,7 @@ extern Number kA;  // Acceleration feedforward (volts per acceleration)
 bool loadFeedForwardCalibrationValues() {
   // Check if SD card is installed
   if (!pros::usd::is_installed()) {
-    characterizationView.showStatusMessage("Warning", "SD card not found, using default values");
+    printf("[FF Calib] Warning: SD card not found, using default values\n");
     return false;
   }
   
@@ -35,7 +34,7 @@ bool loadFeedForwardCalibrationValues() {
   // Open file for reading
   file = fopen(file_path, "r");
   if (!file) {
-    characterizationView.showStatusMessage("Info", "No calibration file found");
+    printf("[FF Calib] Info: No calibration file found\n");
     return false;
   }
   
@@ -79,17 +78,12 @@ bool loadFeedForwardCalibrationValues() {
   
   fclose(file);
   
-  // Update the characterization view with loaded values
-  if (foundKs) characterizationView.updateKs(kS);
-  if (foundKv) characterizationView.updateKv(kV);
-  if (foundKa) characterizationView.updateKa(kA);
-  
   // Show status message
   if (foundKs || foundKv || foundKa) {
-    characterizationView.showStatusMessage("Success", "Calibration values loaded from SD card");
+    printf("[FF Calib] Loaded from SD: kS=%.6f kV=%.6f kA=%.6f\n", (double)kS, (double)kV, (double)kA);
     return true;
   } else {
-    characterizationView.showStatusMessage("Warning", "No valid calibration values found");
+    printf("[FF Calib] Warning: No valid calibration values found\n");
     return false;
   }
 }
@@ -100,7 +94,7 @@ bool loadFeedForwardCalibrationValues() {
 void saveFeedForwardCalibrationValues() {
   // Check if SD card is installed
   if (!pros::usd::is_installed()) {
-    characterizationView.showStatusMessage("Warning", "SD card not found, values not saved");
+    printf("[FF Calib] Warning: SD card not found, values not saved\n");
     return;
   }
   
@@ -115,7 +109,7 @@ void saveFeedForwardCalibrationValues() {
   // Open file for writing
   file = fopen(file_path, "w");
   if (!file) {
-    characterizationView.showStatusMessage("Error", "Failed to open file for writing");
+    printf("[FF Calib] Error: Failed to open file for writing\n");
     return;
   }
   
@@ -126,36 +120,31 @@ void saveFeedForwardCalibrationValues() {
   fprintf(file, "kA: %.6f\n", kA);
   
   fclose(file);
-  characterizationView.showStatusMessage("Success", "Calibration values saved to SD card");
+  printf("[FF Calib] Saved to SD: kS=%.6f kV=%.6f kA=%.6f\n", (double)kS, (double)kV, (double)kA);
 }
 
 /**
  * Dedicated routine for tuning the kS parameter (static friction)
- * Enhanced with safety limits and better error handling
  */
 void tuneKs() {  
   // Create the feedforward tuner
   tuning::FeedforwardTuner feedforwardTuner;
   
-  // Set the wheel diameter from the characterization view
+  // Set the wheel diameter
   feedforwardTuner.setWheelDiameter(wheelDiameter);
   
   // Clear any existing callbacks
   feedforwardTuner.clearCallbacks();
   
-  // Add callback to update the characterization view with data points
+  // Add callback to print data points
   feedforwardTuner.addVelocityDataCallback(
     [](double voltage, double velocity) {
-      characterizationView.addVelocityDataPoint(voltage, velocity);
-      // Show safety status
-      if (voltage >= 9.0) {
-        characterizationView.showStatusMessage("Safety", "WARNING: Approaching 10.0V limit");
-      }
+      printf("  V=%.3f vel=%.3f\n", voltage, velocity);
     }
   );
   
-  characterizationView.showKsTest();
-  characterizationView.showStatusMessage("Safety", "Max voltage: 10.0V | Timeout: 15s");
+  printf("=== kS Calibration ===\n");
+  printf("Safety: Max voltage 10.0V | Timeout 15s\n");
   
   try {
     constexpr int numRuns = 7;
@@ -177,8 +166,6 @@ void tuneKs() {
     double stddev = ksResults.size() > 1 ? std::sqrt(sqSum / (ksResults.size() - 1)) : 0.0;
 
     kS = mean;
-    characterizationView.updateKs(kS);
-    characterizationView.showStatusMessage("kS Measured", ("Mean: " + std::to_string(mean) + ", Stddev: " + std::to_string(stddev)).c_str());
 
     printf("\n==== kS Calibration Results ====\n");
     for (int i = 0; i < numRuns; ++i) {
@@ -186,69 +173,51 @@ void tuneKs() {
     }
     printf("Mean: %.4f V\n", mean);
     printf("Stddev: %.4f V\n", stddev);
+    printf(">>> kS = %.6f <<<\n", mean);
 
     // Save calibration value to SD card
     saveFeedForwardCalibrationValues();
 
   } catch (const std::exception& e) {
-    characterizationView.showStatusMessage("Error", e.what());
     printf("kS tuning failed: %s\n", e.what());
   }
-
-  characterizationView.showKsTest();
 }
 
 /**
  * Dedicated routine for tuning the kV parameter (velocity constant)
- * Enhanced with safety limits and speed monitoring
  */
 void tuneKv() {
   // Create the feedforward tuner
   tuning::FeedforwardTuner feedforwardTuner;
   
-  // Set the wheel diameter from the characterization view
+  // Set the wheel diameter
   feedforwardTuner.setWheelDiameter(wheelDiameter);
   
   // Clear any existing callbacks
   feedforwardTuner.clearCallbacks();
   
-  // Add callback to update the characterization view with data points
+  // Add callback to print data points
   feedforwardTuner.addVelocityDataCallback(
     [](double voltage, double velocity) {
-      characterizationView.addVelocityDataPoint(voltage, velocity);
-      // Show safety status
-      if (voltage >= 7.5) {
-        characterizationView.showStatusMessage("Safety", "WARNING: Approaching 8.0V limit");
-      }
-      if (velocity >= 55.0) {
-        characterizationView.showStatusMessage("Safety", "WARNING: Approaching 60 in/s limit");
-      }
+      printf("  V=%.3f vel=%.3f\n", voltage, velocity);
     }
   );
   
-  characterizationView.showKvTest();
-  characterizationView.showStatusMessage("Safety", "Max voltage: 8.0V | Max speed: 60 in/s | Timeout: 30s");
+  printf("=== kV Calibration ===\n");
+  printf("Safety: Max voltage 8.0V | Max speed 60 in/s | Timeout 30s\n");
   
   try {
-    // Run the kV tuning routine with safety features
+    // Run the kV tuning routine
     kV = feedforwardTuner.tuneKv(kS);
-      
-    // Update characterization view with the result
-    characterizationView.updateKv(kV);
-    characterizationView.showStatusMessage("kV Measured", ("Value: " + std::to_string(kV)).c_str());
     
-    // Display final result
-    printf("kV Calibration (Safe)\n");
-    printf("kV: %.4f V/(in/s)\n", kV);
+    printf(">>> kV = %.6f V/(in/s) <<<\n", (double)kV);
     
-    // Display for a few seconds
     pros::delay(3000);
     
     // Save calibration values to SD card
     saveFeedForwardCalibrationValues();
     
   } catch (const std::exception& e) {
-    characterizationView.showStatusMessage("Error", e.what());
     printf("kV tuning failed: %s\n", e.what());
   }
 }
@@ -260,27 +229,25 @@ void tuneKa() {
   // Create the feedforward tuner
   tuning::FeedforwardTuner feedforwardTuner;
   
-  // Set the wheel diameter from the characterization view
+  // Set the wheel diameter
   feedforwardTuner.setWheelDiameter(wheelDiameter);
   
   // Clear any existing callbacks
   feedforwardTuner.clearCallbacks();
   
-  // Add callback to update the characterization view with data points
+  // Add callback to print data points
   feedforwardTuner.addAccelerationDataCallback(
     [](double acceleration, double voltage) {
-      characterizationView.addAccelerationDataPoint(acceleration, voltage);
+      printf("  accel=%.3f V=%.3f\n", acceleration, voltage);
     }
   );
   
-  characterizationView.showKaTest();
+  printf("=== kA Calibration ===\n");
   
   // Run the kA tuning routine
   kA = feedforwardTuner.tuneKa(kS, kV);
   
-  // Update characterization view with the result
-  characterizationView.updateKa(kA);
-  characterizationView.showStatusMessage("kA Measured", ("Value: " + std::to_string(kA)).c_str());
+  printf(">>> kA = %.6f <<<\n", (double)kA);
   
   // Save calibration values to SD card
   saveFeedForwardCalibrationValues();

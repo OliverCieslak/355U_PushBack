@@ -13,18 +13,20 @@
 #include "liblvgl/lvgl.h"
 #include "localization/ParticleFilter.hpp"
 #include "motion/TrajectoryGenerator.hpp"
-#include "odometry/SkidSteerOdometry.hpp"
+// #include "odometry/SkidSteerOdometry.hpp"
+#include "odometry/OneWheelOdometry.hpp"
+// #include "odometry/TwoWheelOdometry.hpp"
+#include "hardware/Encoder/V5RotationSensor.hpp"
 #include "pros/distance.hpp"
 #include "robodash/api.h"
-#include "tuning/CharacterizationView.hpp"
 #include "tuning/FeedforwardTuner.hpp"
 #include "tuning/MotionProfileTuner.hpp"
 #include "tuning/PIDAutoTuner.hpp"
 #include "tuning/PIDDriveControllerTuner.hpp"
+#include "tuning/PIDTuningRoutines.hpp"
 #include "utils/DistanceUtils.hpp"
 #include "utils/FastMath.hpp"
-#include "viz/FieldView.hpp"
-#include "viz/DiagnosticsView.hpp"
+
 #include <vector>
 #include <fstream>
 #include <iostream>
@@ -48,6 +50,10 @@ lemlib::MotorGroup leftMotors({LEFT_MOTOR_1, LEFT_MOTOR_2, LEFT_MOTOR_3}, 600_rp
 lemlib::MotorGroup rightMotors({RIGHT_MOTOR_1, RIGHT_MOTOR_2, RIGHT_MOTOR_3}, 600_rpm);
 
 lemlib::V5InertialSensor imu(14);
+
+// Vertical tracking wheel - about 0.5" right of center
+lemlib::V5RotationSensor trackingWheel(-9);
+Length trackingWheelDiameter = 2.75_in; // measure and calibrate this like we did for drive wheels
 
 // Snail motors for intake and scoring
 
@@ -108,20 +114,24 @@ code = working
 bugs = none
 linde = fat
 */
-
+/*
 Number kS = 0.68316;
 Number kV = 0.14606;  // Velocity feedforward (volts per velocity)
 Number kA = 0.026048; // Acceleration feedforward (volts per acceleration)
+*/
+Number kS = 0.54;
+Number kV = 0.104277;  // Velocity feedforward (volts per velocity)
+Number kA = 0.035782; // Acceleration feedforward (volts per acceleration)
 
-double linearKp = .175;
+double linearKp = .5;
 double linearKi = 0.0;
-double linearKd = 0.0;
-double angularKp = .155;
+double linearKd = 15.0;
+double angularKp = .5;
 double angularKi = 0.0;
-double angularKd = 500.0;
-double headingKp = .1;	// Heading correction during straight-line drives
+double angularKd = 38.0;
+double headingKp = 1.0;	// Heading correction during straight-line drives
 double headingKi = 0.0; // (separate from turn-in-place angular gains)
-double headingKd = 0;
+double headingKd = 8.0;
 Mass robotMass = 13.0_lb;
 Torque driveTrainTorque = 2.1_Nm; // 6 motors at 0.35 Nm each
 
@@ -146,55 +156,55 @@ double centripetalSafetyFactor = 0.5; // Conservative safety factor
 LinearAcceleration maxCentripetalAccel = centripetalSafetyFactor * std::min(maxAccelSlip, maxAccelTip);
 
 units::Pose initialPose(0_in, 0_in, 0_cDeg); // Initial pose of the robot
-// Create the odometry instance for tracking robot position
-odometry::SkidSteerOdometry odometrySystem(
-	leftMotors,
-	rightMotors,
+// One tracking wheel + IMU, wheel is ~0.5" right of center
+odometry::OneWheelOdometry odometrySystem(
+	trackingWheel,
 	imu,
-	trackWidth,
-	wheelDiameter,
+	trackingWheelDiameter,
+	0.5_in,  // lateral offset (positive = right of center)
 	initialPose);
-localization::ParticleFilter particleFilter(odometrySystem, initialPose, 1250);
+localization::ParticleFilter particleFilter(
+	[]() { return odometrySystem.getPose(); },
+	initialPose, 1250);
 
 control::PIDDriveController pidDriveController(
 	leftMotors,
 	rightMotors,
-	{trackWidth, wheelDiameter, linearKp, linearKi, linearKd, angularKp, angularKi, angularKd, kV, kS, .5_in, 2_stDeg, headingKp, headingKi, headingKd},
-	[]()
-	{ return odometrySystem.getPose(); });
+	{trackWidth, wheelDiameter, linearKp, linearKi, linearKd, angularKp, angularKi, angularKd, kV, kS, .5_in, 1_stDeg, headingKp, headingKi, headingKd},
+	[]() { return odometrySystem.getPose(); },
+	[]() { return odometrySystem.getVelocity(); });
 
 control::PIDDriveController pidPfDriveController(
 	leftMotors,
 	rightMotors,
-	{trackWidth, wheelDiameter, linearKp, linearKi, linearKd, angularKp, angularKi, angularKd, kV, kS, .5_in, 2_stDeg, headingKp, headingKi, headingKd},
-	[]()
-	{ return particleFilter.getPose(); });
+	{trackWidth, wheelDiameter, linearKp, linearKi, linearKd, angularKp, angularKi, angularKd, kV, kS, .5_in, 1_stDeg, headingKp, headingKi, headingKd},
+	[]() { return particleFilter.getPose(); },
+	[]() { return particleFilter.getVelocity(); });
 rd::Selector selector({
-	// {"7 Ball", autonSevenBallLongGoal, "", 240},
-	// {"Alt 7 Ball Dial Side", autonSevenBallLongGoalAltDialSide, "", 240},
-	// {"Partner SelfAWP Dial Side", autonPartnerSelfAWPDialSide, "", 240},
 	// {"Red Skills", autonSkillsRedSideOnly, "", 120},
 	// {"Skills", autonSkills, "", 240},
 	{"Upper Side", autonLongAndUpperGoal, "", 120},
 	{"Rush Lower", autonRushLower, "", 90},
 	{"Rush Upper", autonRushUpper, "", 90},
-	{"Rush Lower ML - Alley", autonRushLowerMatchLoaderAlleyEnd, "", 90},
 	{"Partner SelfAWP Dumb", autonPartnerSelfAWPDumb, "", 120},
 	{"Lower Side", autonLongAndLowerGoal, "", 120},
 	{"20 Skills", autonTwentyBallSkills, "", 240},
-	// {"9 Ball", autonNineBallLongGoal, "", 240},
 	// {"PP Full Path", purePursuitTest, "", 240},
 	// {"PP Straight", purePursuitStraightTest, "", 120},
 	// {"PP S Curve", purePursuitSTest, "", 180},
 	// {"CG Only", autonCenterGoalOnly, "", 240},
 	// {"LZ LG CG", autonLoadingZoneLongGoalCenterGoal, "", 240},
 	// {"Gen Path Test", genPathTest, "", 55},
-	// {"Odom Test", runOdomTest, "", 55},
+	{"Odom Test", runOdomTest, "", 55},
+	{"Spin Calibration", runSpinCalibration, "", 30},
 	// {"PF DS Calib", calibrateParticleFilterDistanceSensorPoses, "", 55},
 	//{"PF Test", runParticleFilterTest, "", 55},
-	//{"Tune kS", tuneKs, "", 55},
-	//{"Tune kV", tuneKv, "", 55},
-	//{"Tune kA", tuneKa, "", 55},
+	{"Tune kS", tuneKs, "", 55},
+	{"Tune kV", tuneKv, "", 55},
+	{"Tune kA", tuneKa, "", 55},
+	{"Tune Angular PID", tunePID_Angular, "", 30},
+	{"Tune Linear PID", tunePID_Linear, "", 30},
+	{"Tune Heading", tunePID_Heading, "", 30},
 	//{"Autotune PID", tuning::autonAutoTunePID, "", 120},
 	//{"Manual Turn", manualTurnTest, "", 55},
 	// {"Manual Linear", manualLinearTest, "", 55},
@@ -202,9 +212,7 @@ rd::Selector selector({
 	{"Movement Test", movementTest, "", 55},
 });
 
-viz::FieldView fieldView;
-tuning::CharacterizationView characterizationView;
-viz::DiagnosticsView diagnosticsView;
+
 
 /**
  * Runs initialization code. This occurs as soon as the program is started.
@@ -323,8 +331,11 @@ void initialize()
 	  while (true)
 	  {
 		 intakeAntiStallColorSort();
-		 firstStageIntake.doAntistall();
-		 secondStageIntake.doAntistall();
+		 // Only run antistall during autonomous, not driver control
+		 if (pros::competition::is_autonomous()) {
+			 firstStageIntake.doAntistall();
+			 secondStageIntake.doAntistall();
+		 }
 		 //tophood.doAntistall();
 		 //basketChain.doAntistall();
 		 // pros::c::task_delay_until(&lastTimeRun, 10);
@@ -379,7 +390,6 @@ void autonomous()
 	std::cout << "Autonomous mode started" << std::endl;
 	// Capture start time for autonomous routine execution
 	uint32_t autonStartMs = pros::millis();
-
 	selector.run_auton();
 
 	// Compute and report total autonomous execution time
@@ -407,21 +417,76 @@ void opcontrol()
 	// Set motor brake modes
 	leftMotors.setBrakeMode(lemlib::BrakeMode::COAST);
 	rightMotors.setBrakeMode(lemlib::BrakeMode::COAST);
-	if (diagnosticsView.getDriveMode() == control::DriveMode::ARCADE)
-	{
-		currentDriveMode = control::DriveMode::ARCADE;
-	}
-	else
-	{
-		currentDriveMode = control::DriveMode::ARCADE;
-	}
-	driverControl.setDriveMode(currentDriveMode);
+	driverControl.setDriveMode(control::DriveMode::ARCADE);
 
 	while (true)
 	{
 		// Update driver control with the current drive mode
 		driverControl.update();
 
+// #define USE_NEW_CONTROLS 
+#if USE_NEW_CONTROLS 
+		// === NEW CONTROL SCHEME ===
+		// L1 alone  = Long goal scoring
+		// L2 alone  = Intake (Index)
+		// R2 + L1   = Middle upper goal scoring  (R2 is "Shift")
+		// R2 + L2   = Outtake
+		// R1        = Wing deadman switch (hold = deploy, release = retract)
+		// The thread running intakeAntistallColorSort handles the motor control
+		// based on snailState.
+		{
+			bool shift = controller.get_digital(DIGITAL_R2);
+
+			if (shift && controller.get_digital(DIGITAL_L2))
+			{
+				snailState = SnailState::Out;
+			}
+			else if (shift && controller.get_digital(DIGITAL_L1))
+			{
+				snailState = SnailState::Middle;
+			}
+			else if (controller.get_digital(DIGITAL_DOWN))
+			{
+				snailState = SnailState::Out;
+			}
+			else if (controller.get_digital(DIGITAL_RIGHT))
+			{
+				snailState = SnailState::Middle;
+			}
+			else if (controller.get_digital(DIGITAL_L2))
+			{
+				snailState = SnailState::Long;
+			}
+			else if (controller.get_digital(DIGITAL_L1))
+			{
+				snailState = SnailState::Index;
+			}
+			else
+			{
+				snailState = SnailState::OFF;
+			}
+			if (controller.get_digital(DIGITAL_R1))
+			{
+			wingState = WingState::DOWN;
+			}
+			else
+			{
+			wingState = WingState::LEFTUP;
+			}
+			if (shift && controller.get_digital(DIGITAL_R1))
+			{
+				scraperDown = !scraperDown; // Toggle scraper state
+				scraperPiston.set_value(scraperDown);
+			}
+			
+
+		}
+
+		// R1 = Wing deadman switch: hold to deploy (DOWN), release to retract (UP)
+		
+		
+#else 
+		// === OLD CONTROL SCHEME ===
 		// L1 - Intake to the basket
 		// L2 - Out take to the Lower Center Goal / Field
 		// R1 - Score in the Long Goal
@@ -448,7 +513,7 @@ void opcontrol()
 		{
 			snailState = SnailState::OFF; // No buttons pressed, stop the intake and scoring motors
 		}
-		// Wing: hold to deploy (DOWN), release to retract (UP)
+		// Wing: hold to deploy (DOWN), release to retract (RIGHT)
 		if (controller.get_digital_new_press(DIGITAL_DOWN) || controller.get_digital_new_press(DIGITAL_RIGHT))
 		{
 			if (wingState == WingState::LEFTUP)
@@ -462,6 +527,7 @@ void opcontrol()
 	
 			
 		}
+#endif
 
 
 		if (controller.get_digital_new_press(DIGITAL_B))

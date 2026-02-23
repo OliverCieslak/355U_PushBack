@@ -1,8 +1,7 @@
 #pragma once
 
-#include "odometry/SkidSteerOdometry.hpp"
-#include "pros/rtos.hpp"
 #include "units/Pose.hpp"
+#include "pros/rtos.hpp"
 #include "units/units.hpp"
 #include "utils/DistanceUtils.hpp"
 #include "utils/FastMath.hpp"
@@ -42,7 +41,7 @@ public:
      * 
      */
     ParticleFilter(
-        odometry::SkidSteerOdometry& odometry,
+        std::function<units::Pose()> poseProvider,
         const units::Pose& initialPose,
         size_t numParticles = 500,
         Length motionNoise = 0.5_in,
@@ -136,7 +135,7 @@ public:
     std::pair<LinearVelocity, AngularVelocity> getVelocity() const;
 
 private:
-    odometry::SkidSteerOdometry& m_odometry;
+    std::function<units::Pose()> m_poseProvider;
     std::vector<Particle> m_particles;
     std::vector<Particle> m_tempParticles;  // Pre-allocated vector for resampling
     std::vector<double> m_cumulativeWeights; // Pre-allocated vector for weights

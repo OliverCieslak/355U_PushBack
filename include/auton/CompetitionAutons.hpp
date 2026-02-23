@@ -4,7 +4,7 @@
 #include "localization/ParticleFilter.hpp"
 #include "main.h"
 #include "motion/TrajectoryGenerator.hpp"
-#include "odometry/SkidSteerOdometry.hpp"
+#include "odometry/OneWheelOdometry.hpp"
 #include "pros/adi.hpp"
 #include "pros/motors.hpp"
 #include "units/units.hpp"
@@ -35,7 +35,7 @@ extern LinearAcceleration maxAccel;
 extern LinearAcceleration maxCentripetalAccel;
 extern control::PIDDriveController pidDriveController;
 extern control::PIDDriveController pidPfDriveController;
-extern odometry::SkidSteerOdometry odometrySystem;
+extern odometry::OneWheelOdometry odometrySystem;
 extern localization::ParticleFilter particleFilter;
 extern LeftOrRight autonStartingPosition;
 extern pros::adi::DigitalOut scraperPiston;
@@ -50,7 +50,6 @@ extern pros::Distance rightSensor;
 void autonPartnerSelfAWPDumb();
 void autonLongAndUpperGoal();
 void autonRushLower();
-void autonRushLowerMatchLoaderAlleyEnd();
 void autonRushUpper();
 void autonLongAndLowerGoal();
 void autonSkills();

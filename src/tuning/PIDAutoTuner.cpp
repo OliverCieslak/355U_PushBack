@@ -1,5 +1,5 @@
 #include "tuning/PIDAutoTuner.hpp"
-#include "odometry/SkidSteerOdometry.hpp"
+#include "odometry/OneWheelOdometry.hpp"
 #include "pros/rtos.hpp"
 #include "pros/misc.hpp"
 #include <cmath>
@@ -11,7 +11,7 @@
 
 // Externs we need from main.cpp
 extern control::PIDDriveController pidDriveController;
-extern odometry::SkidSteerOdometry odometrySystem;
+extern odometry::OneWheelOdometry odometrySystem;
 extern lemlib::MotorGroup leftMotors;
 extern lemlib::MotorGroup rightMotors;
 extern double linearKp;

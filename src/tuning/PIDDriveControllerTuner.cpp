@@ -8,7 +8,6 @@
 #include <string>
 #include <sstream>
 
-extern tuning::CharacterizationView characterizationView;
 extern lemlib::MotorGroup leftMotors;
 extern lemlib::MotorGroup rightMotors;
 extern pros::MotorGroup prosLeftMotors;
@@ -228,7 +227,6 @@ void PIDDriveControllerTuner::tuneFeedforward(Length testDistance, Number maxVol
     // Add data collection callbacks
     feedforwardTuner.addVelocityDataCallback(
         [this](double voltage, double velocity) {
-            characterizationView.addVelocityDataPoint(voltage, velocity);
             m_telemetryCallback("voltage", voltage);
             m_telemetryCallback("velocity", velocity);
         }
@@ -377,7 +375,7 @@ PIDDriveControllerTuner::PerformanceMetrics PIDDriveControllerTuner::runTest(
 bool PIDDriveControllerTuner::saveConfiguration(const std::string& filepath) {
     // Check if SD card is installed
     if (!pros::usd::is_installed()) {
-        characterizationView.showStatusMessage("Warning", "SD card not found, values not saved");
+        printf("[PID Tuner] Warning: SD card not found, values not saved\n");
         return false;
     }
     // Override path to SD card file if using default path
@@ -406,7 +404,7 @@ bool PIDDriveControllerTuner::saveConfiguration(const std::string& filepath) {
                 
         file.close();
         
-        characterizationView.showStatusMessage("Success", ("Configuration saved to " + path).c_str());
+        printf("[PID Tuner] Configuration saved to %s\n", path.c_str());
         return true;
     } catch (const std::exception& e) {
         std::cerr << "Error saving configuration: " << e.what() << std::endl;
@@ -417,7 +415,7 @@ bool PIDDriveControllerTuner::saveConfiguration(const std::string& filepath) {
 bool PIDDriveControllerTuner::loadConfiguration(const std::string& filepath) {
     // Check if SD card is installed
     if (!pros::usd::is_installed()) {
-        characterizationView.showStatusMessage("Warning", "SD card not found, loading configuration skipped");
+        printf("[PID Tuner] Warning: SD card not found, loading skipped\n");
         return false;
     }
     // Override path to SD card file if using default path
@@ -468,7 +466,7 @@ bool PIDDriveControllerTuner::loadConfiguration(const std::string& filepath) {
         // Update controller parameters
         updateControllerParameters(m_currentConfig);
         
-        characterizationView.showStatusMessage("Success", ("Configuration loaded from " + path).c_str());
+        printf("[PID Tuner] Configuration loaded from %s\n", path.c_str());
         return true;
     } catch (const std::exception& e) {
         std::cerr << "Error loading configuration: " << e.what() << std::endl;

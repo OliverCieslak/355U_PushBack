@@ -2,7 +2,7 @@
 
 #include "hardware/Motor/MotorGroup.hpp"
 #include "motion/TrajectoryGenerator.hpp"
-#include "odometry/SkidSteerOdometry.hpp"
+#include "odometry/OneWheelOdometry.hpp"
 #include "pros/motors.hpp"
 #include "robodash/api.h"
 #include "units/units.hpp"

@@ -8,7 +8,7 @@
 
 #include "units/Pose.hpp"
 #include "utils/DistanceUtils.hpp"
-#include "odometry/SkidSteerOdometry.hpp"
+#include "odometry/OneWheelOdometry.hpp"
 #include "localization/ParticleFilter.hpp"
 #include "viz/FieldView.hpp"
 #include "viz/DiagnosticsView.hpp"
@@ -18,7 +18,7 @@
 #include "pros/imu.hpp"
 
 // External references declared in main.cpp
-extern odometry::SkidSteerOdometry odometrySystem;
+extern odometry::OneWheelOdometry odometrySystem;
 extern localization::ParticleFilter particleFilter;
 extern viz::FieldView fieldView;
 extern viz::DiagnosticsView diagnosticsView;

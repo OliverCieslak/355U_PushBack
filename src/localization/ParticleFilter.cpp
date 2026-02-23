@@ -11,14 +11,14 @@ namespace localization
 {
 
     ParticleFilter::ParticleFilter(
-        odometry::SkidSteerOdometry &odometry,
+        std::function<units::Pose()> poseProvider,
         const units::Pose &initialPose,
         size_t numParticles,
         Length motionNoise,
         Angle angleNoise,
-        Time updateInterval) : m_odometry(odometry),
+        Time updateInterval) : m_poseProvider(poseProvider),
                                m_estimatedPose(initialPose),
-                               m_lastOdometryPose(odometry.getPose()),
+                               m_lastOdometryPose(poseProvider()),
                                m_numParticles(numParticles),
                                m_motionNoise(motionNoise),
                                m_angleNoise(angleNoise),
@@ -69,7 +69,7 @@ namespace localization
         }
 
         m_estimatedPose = utils::constrainToField(initialPose);
-        m_lastOdometryPose = m_odometry.getPose();
+        m_lastOdometryPose = m_poseProvider();
     }
 
     void ParticleFilter::start()
@@ -102,7 +102,7 @@ namespace localization
         uint32_t updateStartTime = pros::micros();
 
         // Get current odometry reading
-        units::Pose currentOdomPose = m_odometry.getPose();
+        units::Pose currentOdomPose = m_poseProvider();
         // Record the time immediately after getting sensor readings for velocity calculations
         uint32_t currentSensorTime = pros::micros();
 
@@ -385,7 +385,7 @@ namespace localization
     void ParticleFilter::updateParticleWeights(const std::vector<utils::SensorScore> &selectedSensors)
     {
         // Get current odometry heading for comparison
-        Angle odomHeading = from_stDeg(to_stDeg(m_odometry.getPose().orientation));
+        Angle odomHeading = from_stDeg(to_stDeg(m_poseProvider().orientation));
 
         // For each particle, calculate how well it matches the sensor readings
         double maxLogWeight = -std::numeric_limits<double>::infinity();
@@ -773,7 +773,7 @@ namespace localization
     {
         m_mutex.take(20);
         initializeParticles(initialPose);
-        m_lastOdometryPose = m_odometry.getPose();
+        m_lastOdometryPose = m_poseProvider();
         m_mutex.give();
     }
 

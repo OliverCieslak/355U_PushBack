@@ -5,7 +5,15 @@
 #include "units/Angle.hpp"
 #include "control/DifferentialDriveConfig.hpp"
 #include "main.h"
+  // use this for debugging odometry pose
+    /*{
+        auto startPose = odometrySystem.getPose();
+        printf("[%5lums] face ml x=%.2f y=%.2f hComp=%.1f\n",
+               (unsigned long)(pros::millis() - t0),
+               to_in(startPose.x), to_in(startPose.y), to_cDeg(startPose.orientation));
+    }*/
 
+// NOTE: for Turning PID
 void manualTurnTest()
 {
     odometrySystem.resetPose(units::Pose(0_in, 0_in, 0_cDeg));
@@ -17,7 +25,7 @@ void manualTurnTest()
            (unsigned long)(pros::millis() - t0),
            to_in(odomPose.x), to_in(odomPose.y), to_cDeg(odomPose.orientation));
 }
-
+//Note: for Linear PID
 void manualLinearTest()
 {
     odometrySystem.resetPose(units::Pose(0_in, 0_in, 0_cDeg));
@@ -44,19 +52,17 @@ void autonPartnerSelfAWPDumb()
 
     uint32_t t0 = pros::millis();
 
-    // Print odometry pose for debugging
-    {
-        auto startPose = odometrySystem.getPose();
-        printf("[%5lums] startPose x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(startPose.x), to_in(startPose.y), to_cDeg(startPose.orientation));
-    }
 
     pidDriveController.driveDistance(8_in, 8.0, 1.75_sec, true); // Drive to match loader
 }
 
-void matchLoadToLongGoalStart(UpperOrLower goalSide, uint32_t t0)
+void ParkZoneToMatchLoader(UpperOrLower goalSide, uint32_t t0)
 {
+       // Implement the long and upper goal autonomous routine here
+    Length x_start = 50_in;
+    // We flip the sign of the starting Y coordinate based on Starting Position (Left/Right)
+    Length y_start = 12_in;
+    // We flip the sign of the starting heading based on Starting Position (Left/Right) and Alliance
     scraperPiston.set_value(true);
     snailState = SnailState::Index; // Get ready to match load
 
@@ -69,125 +75,30 @@ void matchLoadToLongGoalStart(UpperOrLower goalSide, uint32_t t0)
     else
     {
         printf("Starting Lower Goal Side\n");
-        pidDriveController.driveDistance(31_in, 8.0, 2_sec, true); // Drive to match loader
+        pidDriveController.driveDistance(30_in, 8.0, 2_sec, true); // Drive to match loader
     }
 
-    pidDriveController.turnToHeading(from_cDeg(-90), 8.0, 1_sec, true); // Turn to face the match loader
+    pidDriveController.turnToHeading(from_cDeg(-88), 15, 1_sec, true); // Turn to face the match loader
 
-    // Print odometry pose for debugging
-    {
-        auto startPose = odometrySystem.getPose();
-        printf("[%5lums] face ml x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(startPose.x), to_in(startPose.y), to_cDeg(startPose.orientation));
-    }
+  
 
-    pidDriveController.driveDistance(14_in, 6.5, 1.0_sec, true); // Drive to match loader
-    // Print odometry pose for debugging
-    {
-        auto startPose = odometrySystem.getPose();
-        printf("[%5lums] match load x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(startPose.x), to_in(startPose.y), to_cDeg(startPose.orientation));
-    }
-    pros::delay(200); // Match load
+    pidDriveController.driveDistance(14_in, 20, 2.0_sec, true); // Drive to match loader
+    pros::delay(100);//wait at match loader for ball to be intaked
     snailState = SnailState::OFF;
 
-    // Since we are setting starting heading, this should always turn the right way
-    pidDriveController.turnToHeading(from_cDeg(-90), 8.0, .5_sec, true); // Turn to face the match loader
-    pidDriveController.driveDistance(-35.5_in, 6.5, 1.25_sec, true);     // Move to long goal
-    // Print odometry pose for debugging
-    {
-        auto startPose = odometrySystem.getPose();
-        printf("[%5lums] LG x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(startPose.x), to_in(startPose.y), to_cDeg(startPose.orientation));
-    }
+    
+}
+void MatchLoaderToLongGoal(UpperOrLower goalSide, uint32_t t0)
+{
+    pidDriveController.driveDistance(-35.5_in, 6.5, 1.0_sec, true);     // Move to long goal
     snailState = SnailState::Long; // Score LG
     scraperPiston.set_value(false);
-    pros::delay(1250);
+    pros::delay(1000);
+    //this so that way we only have to change one nuymber to change all autons.
 }
-
 void autonLongAndUpperGoal()
 {
-    // Implement the long and upper goal autonomous routine here
-    Length x_start = -48.5_in;
-    // We flip the sign of the starting Y coordinate based on Starting Position (Left/Right)
-    Length y_start = 13_in;
-    // We flip the sign of the starting heading based on Starting Position (Left/Right) and Alliance
-    double heading_start = 0;
-    units::Pose initialPose = units::Pose(x_start, y_start, from_cDeg(heading_start));
-    odometrySystem.resetPose(initialPose);
-    odometrySystem.start();
-
-    uint32_t t0 = pros::millis();
-
-    // Print odometry pose for debugging
-    {
-        auto startPose = odometrySystem.getPose();
-        printf("[%5lums] startPose x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(startPose.x), to_in(startPose.y), to_cDeg(startPose.orientation));
-    }
-
-    matchLoadToLongGoalStart(UpperOrLower::UPPER, t0);
-    snailState = SnailState::OFF;
-
-    pidDriveController.driveDistance(20_in, 8.0, 1.25_sec, true); // Drive away from long goal
-    // Print odometry pose for debugging
-    {
-        auto startPose = odometrySystem.getPose();
-        printf("[%5lums] away lg x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(startPose.x), to_in(startPose.y), to_cDeg(startPose.orientation));
-    }
-
-    pidDriveController.turnToHeading(from_cDeg(140), 9.0, 1_sec, true); // Turn to face the 3 Stack
-    // Print odometry pose for debugging
-    {
-        auto startPose = odometrySystem.getPose();
-        printf("[%5lums] face 3stack x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(startPose.x), to_in(startPose.y), to_cDeg(startPose.orientation));
-    }
-    snailState = SnailState::Index;
-    pidDriveController.driveDistance(41_in, 4.5, 2.25_sec, true); // Drive to 3 stack
-    // Print odometry pose for debugging
-    {
-        auto startPose = odometrySystem.getPose();
-        printf("[%5lums] at 3stack x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(startPose.x), to_in(startPose.y), to_cDeg(startPose.orientation));
-    }
-    pidDriveController.turnToHeading(from_cDeg(-45), 9.0, 1.5_sec, true); // Turn to face center goal
-
-    // Print odometry pose for debugging
-    {
-        auto startPose = odometrySystem.getPose();
-        printf("[%5lums] face cg x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(startPose.x), to_in(startPose.y), to_cDeg(startPose.orientation));
-    }
-    pidDriveController.driveDistance(-14_in, 6.0, 1_sec, true); // Drive to center goal
-    // Print odometry pose for debugging
-    {
-        auto startPose = odometrySystem.getPose();
-        printf("[%5lums] at cg x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(startPose.x), to_in(startPose.y), to_cDeg(startPose.orientation));
-    }
-    // snailState = SnailState::Out;
-    snailState = SnailState::Middle; // Score in upper goal
-    pros::delay(1250);
-    snailState = SnailState::OFF;
-    /*
-    pidDriveController.driveDistance(32_in, 7.0, 1_sec, true);            // Drive to center goal
-    pidDriveController.turnToHeading(from_cDeg(-90), 8.0, 1_sec, true);   // Turn to push blocks
-    pidDriveController.driveDistance(-16_in, 7.0, 1.25_sec, true);         // Drive blocks
-    pidDriveController.driveDistance(4_in, 7.0, .5_sec, true);         // Drive blocks
-    leftMotors.setBrakeMode(lemlib::BrakeMode::HOLD);
-    rightMotors.setBrakeMode(lemlib::BrakeMode::HOLD);
-    */
+  
 }
 
 void autonRushUpper()
@@ -204,15 +115,9 @@ void autonRushUpper()
 
     uint32_t t0 = pros::millis();
 
-    // Print odometry pose for debugging
-    {
-        auto startPose = odometrySystem.getPose();
-        printf("[%5lums] startPose x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(startPose.x), to_in(startPose.y), to_cDeg(startPose.orientation));
-    }
+   
 
-    matchLoadToLongGoalStart(UpperOrLower::UPPER, t0);
+    ParkZoneToMatchLoader(UpperOrLower::UPPER, t0);
     snailState = SnailState::OFF;
 
     pidDriveController.driveDistance(10_in, 5.0, 1_sec, true);            // Away from LG
@@ -229,154 +134,12 @@ void autonRushUpper()
 
 void autonLongAndLowerGoal()
 {
-    // Implement the long and upper goal autonomous routine here
-    Length x_start = 50_in;
-    // We flip the sign of the starting Y coordinate based on Starting Position (Left/Right)
-    Length y_start = 12_in;
-    // We flip the sign of the starting heading based on Starting Position (Left/Right) and Alliance
-    double heading_start = 0;
-    units::Pose initialPose = units::Pose(x_start, y_start, from_cDeg(heading_start));
-    odometrySystem.resetPose(initialPose);
-    odometrySystem.start();
-
-    uint32_t t0 = pros::millis();
-
-    // Print odometry pose for debugging
-    {
-        auto startPose = odometrySystem.getPose();
-        printf("[%5lums] startPose x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(startPose.x), to_in(startPose.y), to_cDeg(startPose.orientation));
-    }
-
-    pidDriveController.driveDistance(35_in, 8.0, 1.75_sec, true); // Drive to match loader
-    scraperPiston.set_value(true);
-    pidDriveController.turnToHeading(from_cDeg(90), 9.0, 1_sec, true); // Turn to face the match loader
-
-    // Print odometry pose for debugging
-    {
-        auto startPose = odometrySystem.getPose();
-        printf("[%5lums] Face MatchLoad x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(startPose.x), to_in(startPose.y), to_cDeg(startPose.orientation));
-    }
-
-    snailState = SnailState::Index; // Get ready to match load
-    // scraperPiston.set_value(true);
-    // pidDriveController.turnToHeading(from_cDeg(90), 9.0, .5_sec, true); // Really face the match loader
-    pidDriveController.driveDistance(19_in, 7.0, 1_sec, true); // Drive to match loader
-    // Print odometry pose for debugging
-    {
-        auto startPose = odometrySystem.getPose();
-        printf("[%5lums] At MatchLoad x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(startPose.x), to_in(startPose.y), to_cDeg(startPose.orientation));
-    }
-    pros::delay(150);                                             // Match load
-    pidDriveController.driveDistance(-37_in, 5.0, 2.0_sec, true); // Move to long goal
-    // Print odometry pose for debugging
-    {
-        auto startPose = odometrySystem.getPose();
-        printf("[%5lums] At LongGoal x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(startPose.x), to_in(startPose.y), to_cDeg(startPose.orientation));
-    }
-    scraperPiston.set_value(false);
-    snailState = SnailState::Long; // Score LG
-    pros::delay(950);
-    snailState = SnailState::Index;
-
-    pidDriveController.driveDistance(21_in, 8.0, 1.75_sec, true); // Drive away from long goal
-    // Print odometry pose for debugging
-    {
-        auto startPose = odometrySystem.getPose();
-        printf("[%5lums] Away From LongGoal x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(startPose.x), to_in(startPose.y), to_cDeg(startPose.orientation));
-    }
-
-    pidDriveController.turnToHeading(from_cDeg(-132), 9.0, 1_sec, true); // Turn to face the 3 Stack
-    // Print odometry pose for debugging
-    {
-        auto startPose = odometrySystem.getPose();
-        printf("[%5lums] Turn to 3-stack x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(startPose.x), to_in(startPose.y), to_cDeg(startPose.orientation));
-    }
-
-    pidDriveController.turnToHeading(from_cDeg(-135), 9.0, .5_sec, true);
-    pidDriveController.driveDistance(39_in, 5.0, 2_sec, true); // Drive to 3 stack
-    // Print odometry pose for debugging
-    {
-        auto startPose = odometrySystem.getPose();
-        printf("[%5lums] At 3-stack x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(startPose.x), to_in(startPose.y), to_cDeg(startPose.orientation));
-    }
-    pros::delay(250); // Intake 3 stack
-
-    pidDriveController.turnToHeading(from_cDeg(-124), 9.0, 1_sec, true);
-    pidDriveController.driveDistance(12_in, 6.0, 1_sec, true); // Drive to center goal
-    // Print odometry pose for debugging
-    {
-        auto startPose = odometrySystem.getPose();
-        printf("[%5lums] End at centergoal x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(startPose.x), to_in(startPose.y), to_cDeg(startPose.orientation));
-    }
-
-    snailState = SnailState::Out; // Score in upper goal
-    pros::delay(1000);
-    snailState = SnailState::OFF;
+    
 }
+
+
 
 void autonRushLower()
-{
-    // Implement the long and upper goal autonomous routine here
-    Length x_start = -56_in;
-    // We flip the sign of the starting Y coordinate based on Starting Position (Left/Right)
-    Length y_start = -18_in;
-    // We flip the sign of the starting heading based on Starting Position (Left/Right) and Alliance
-    double heading_start = 0;
-    units::Pose initialPose = units::Pose(x_start, y_start, from_cDeg(heading_start));
-    odometrySystem.resetPose(initialPose);
-    odometrySystem.start();
-
-    uint32_t t0 = pros::millis();
-
-    // Print odometry pose for debugging
-    {
-        auto startPose = odometrySystem.getPose();
-        printf("[%5lums] startPose x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(startPose.x), to_in(startPose.y), to_cDeg(startPose.orientation));
-    }
-
-    snailState = SnailState::Index; // Only the first stage on
-
-    pidDriveController.turnToHeading(from_cDeg(17), 8.0, 1_sec, true);  // Turn to face the 3stack
-    pidDriveController.driveDistance(32_in, 5.0, 3_sec, true);          // Drive to 3 stack
-    pidDriveController.turnToHeading(from_cDeg(135), 8.0, 1_sec, true); // Turn to face the lower goal
-    snailState = SnailState::OFF;
-    pidDriveController.driveDistance(33_in, 7.0, 3_sec, true);          // Drive to 3 stack
-    pidDriveController.turnToHeading(from_cDeg(180), 8.0, 1_sec, true); // Turn to face the lower goal
-    pidDriveController.driveDistance(-24_in, 5.0, 1.5_sec, true);       // Drive to 3 stack
-
-    snailState = SnailState::Long;
-    pros::delay(1250);
-    snailState = SnailState::OFF;
-
-    pidDriveController.driveDistance(12_in, 5.0, 1_sec, true);            // Drive to 3 stack
-    pidDriveController.turnToHeading(from_cDeg(135), 8.0, .75_sec, true); // Turn to face the lower goal
-    pidDriveController.driveDistance(-15_in, 5.0, 1_sec, true);           // Drive to 3 stack
-    pidDriveController.turnToHeading(from_cDeg(180), 8.0, 1_sec, true);   // Turn to face the lower goal
-    pidDriveController.driveDistance(-24_in, 5.0, 3_sec, true);           // Drive to 3 stack
-    leftMotors.setBrakeMode(lemlib::BrakeMode::HOLD);
-    rightMotors.setBrakeMode(lemlib::BrakeMode::HOLD);
-    pros::delay(10000);
-}
-
-void autonRushLowerMatchLoaderAlleyEnd()
 {
     // Implement the long and upper goal autonomous routine here
     Length x_start = 48.5_in;
@@ -390,25 +153,19 @@ void autonRushLowerMatchLoaderAlleyEnd()
 
     uint32_t t0 = pros::millis();
 
-    // Print odometry pose for debugging
-    {
-        auto startPose = odometrySystem.getPose();
-        printf("[%5lums] startPose x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(startPose.x), to_in(startPose.y), to_cDeg(startPose.orientation));
-    }
+  
 
-    matchLoadToLongGoalStart(UpperOrLower::LOWER, t0);
+    ParkZoneToMatchLoader(UpperOrLower::LOWER, t0);
     snailState = SnailState::OFF;
 
     pidDriveController.driveDistance(10_in, 5.0, 1_sec, true);            // Drive to 3 stack
     pidDriveController.turnToHeading(from_cDeg(-135), 8.0, .75_sec, true); // Turn to face the lower goal
     pidDriveController.driveDistance(10_in, 5.0, 1_sec, true);           // Drive to 3 stack
-    pidDriveController.turnToHeading(from_cDeg(-90), 8.0, 1_sec, true);   // Turn to face the lower goal
-    pidDriveController.driveDistance(-36_in, 8.0, 3_sec, true);           // Drive to 3 stack
+    pidDriveController.turnToHeading(from_cDeg(-94), 8.0, 1_sec, true);   // Turn to face the lower goal
+    pidDriveController.driveDistance(-38_in, 5.0, 1.5_sec, true);           // Drive to 3 stack
     leftMotors.setBrakeMode(lemlib::BrakeMode::HOLD);
     rightMotors.setBrakeMode(lemlib::BrakeMode::HOLD);
-    pros::delay(10000);
+    pros::delay(100);
 }
 
 void movementTest()
