@@ -13,9 +13,9 @@
 #include "liblvgl/lvgl.h"
 #include "localization/ParticleFilter.hpp"
 #include "motion/TrajectoryGenerator.hpp"
-// #include "odometry/SkidSteerOdometry.hpp"
-#include "odometry/OneWheelOdometry.hpp"
-// #include "odometry/TwoWheelOdometry.hpp"
+ #include "odometry/SkidSteerOdometry.hpp"
+// #include "odometry/OneWheelOdometry.hpp"
+#include "odometry/TwoWheelOdometry.hpp"
 #include "hardware/Encoder/V5RotationSensor.hpp"
 #include "pros/distance.hpp"
 #include "robodash/api.h"
@@ -34,8 +34,8 @@
 #define LEFT_MOTOR_1 -11
 #define LEFT_MOTOR_2 -12
 #define LEFT_MOTOR_3 -13
-#define RIGHT_MOTOR_1 20
-#define RIGHT_MOTOR_2 19
+#define RIGHT_MOTOR_1 16
+#define RIGHT_MOTOR_2 17
 #define RIGHT_MOTOR_3 18
 
 pros::Motor prosLeft1(LEFT_MOTOR_1, pros::MotorGearset::blue);
@@ -52,7 +52,9 @@ lemlib::MotorGroup rightMotors({RIGHT_MOTOR_1, RIGHT_MOTOR_2, RIGHT_MOTOR_3}, 60
 lemlib::V5InertialSensor imu(14);
 
 // Vertical tracking wheel - about 0.5" right of center
-lemlib::V5RotationSensor trackingWheel(-9);
+lemlib::V5RotationSensor verticalTrackingWheel(-9);
+// Horizontal tracking wheel - centered
+lemlib::V5RotationSensor horizontalTrackingWheel(20);
 Length trackingWheelDiameter = 2.75_in; // measure and calibrate this like we did for drive wheels
 
 // Snail motors for intake and scoring
@@ -119,13 +121,13 @@ Number kS = 0.68316;
 Number kV = 0.14606;  // Velocity feedforward (volts per velocity)
 Number kA = 0.026048; // Acceleration feedforward (volts per acceleration)
 */
-Number kS = 0.54;
-Number kV = 0.104277;  // Velocity feedforward (volts per velocity)
+Number kS = 0.6317;
+Number kV = 0.0958006;  // Velocity feedforward (volts per velocity)
 Number kA = 0.035782; // Acceleration feedforward (volts per acceleration)
 
-double linearKp = .5;
+double linearKp = .25;
 double linearKi = 0.0;
-double linearKd = 15.0;
+double linearKd = 12.0;
 double angularKp = .5;
 double angularKi = 0.0;
 double angularKd = 38.0;
@@ -156,12 +158,15 @@ double centripetalSafetyFactor = 0.5; // Conservative safety factor
 LinearAcceleration maxCentripetalAccel = centripetalSafetyFactor * std::min(maxAccelSlip, maxAccelTip);
 
 units::Pose initialPose(0_in, 0_in, 0_cDeg); // Initial pose of the robot
-// One tracking wheel + IMU, wheel is ~0.5" right of center
-odometry::OneWheelOdometry odometrySystem(
-	trackingWheel,
+// Two tracking wheels + IMU
+odometry::TwoWheelOdometry odometrySystem(
+	verticalTrackingWheel,
+	horizontalTrackingWheel,
 	imu,
-	trackingWheelDiameter,
-	0.5_in,  // lateral offset (positive = right of center)
+	trackingWheelDiameter,  // vertical wheel diameter
+	trackingWheelDiameter,  // horizontal wheel diameter
+	0.5_in,   // vertical wheel lateral offset (positive = right of center)
+	-4.075_in,   // horizontal wheel longitudinal offset (centered)
 	initialPose);
 localization::ParticleFilter particleFilter(
 	[]() { return odometrySystem.getPose(); },
@@ -186,16 +191,14 @@ rd::Selector selector({
 	{"Upper Side", autonLongAndUpperGoal, "", 120},
 	{"Rush Lower", autonRushLower, "", 90},
 	{"Rush Upper", autonRushUpper, "", 90},
-	{"Partner SelfAWP Dumb", autonPartnerSelfAWPDumb, "", 120},
 	{"Lower Side", autonLongAndLowerGoal, "", 120},
-	{"20 Skills", autonTwentyBallSkills, "", 240},
 	// {"PP Full Path", purePursuitTest, "", 240},
 	// {"PP Straight", purePursuitStraightTest, "", 120},
 	// {"PP S Curve", purePursuitSTest, "", 180},
 	// {"CG Only", autonCenterGoalOnly, "", 240},
 	// {"LZ LG CG", autonLoadingZoneLongGoalCenterGoal, "", 240},
 	// {"Gen Path Test", genPathTest, "", 55},
-	{"Odom Test", runOdomTest, "", 55},
+	// {"Odom Test", runOdomTest, "", 55},
 	{"Spin Calibration", runSpinCalibration, "", 30},
 	// {"PF DS Calib", calibrateParticleFilterDistanceSensorPoses, "", 55},
 	//{"PF Test", runParticleFilterTest, "", 55},
@@ -210,6 +213,10 @@ rd::Selector selector({
 	// {"Manual Linear", manualLinearTest, "", 55},
 	// {"Path Test", runPathTest, "", 55},
 	{"Movement Test", movementTest, "", 55},
+	{"Start to Match Load", Start_MatchLoad, "", 55},
+	{"Match Load to Long Goal", MatchLoad_LongGoal, "", 55},
+	{"Match Load to Wing", MatchLoad_Wing, "", 55},
+	{"Bacon Egg and Cheese", BaconEggAndCheese, "", 55},
 });
 
 

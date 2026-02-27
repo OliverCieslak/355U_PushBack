@@ -5,9 +5,10 @@
 #include "hardware/Encoder/V5RotationSensor.hpp"
 #include "hardware/IMU/V5InertialSensor.hpp"
 #include "control/PIDDriveController.hpp"
-
-extern odometry::OneWheelOdometry odometrySystem;
-extern lemlib::V5RotationSensor trackingWheel;
+#include "odometry/TwoWheelOdometry.hpp"
+extern odometry::TwoWheelOdometry odometrySystem;
+extern lemlib::V5RotationSensor verticalTrackingWheel;
+extern lemlib::V5RotationSensor horizontalTrackingWheel;
 extern lemlib::V5InertialSensor imu;
 extern Length trackingWheelDiameter;
 extern control::PIDDriveController pidDriveController;
@@ -27,7 +28,7 @@ void runOdomTest()
   printf("Running odometry test...\n");
   odometrySystem.resetPose(units::Pose(0_in, 0_in, 0_cDeg));
   // reset tracking wheel encoder so deltas are easy to read
-  trackingWheel.setAngle(0_stDeg);
+  verticalTrackingWheel.setAngle(0_stDeg);
   printf("Started odom....\n");
   odometrySystem.start();
   Time startTime = from_msec(pros::millis());
@@ -40,7 +41,7 @@ void runOdomTest()
       units::Pose currentPose = odometrySystem.getPose();
 
       // Tracking wheel travel in inches
-      double vertTravel = to_in(to_stRad(trackingWheel.getAngle()) * wheelRadius);
+      double vertTravel = to_in(to_stRad(verticalTrackingWheel.getAngle()) * wheelRadius);
 
       printf("\tVertWheel: %.2f in\n", vertTravel);
       printf("\tProsLeftMotors: %.2f, ProsRightMotors: %.2f\n", prosLeftMotors.get_position(), prosRightMotors.get_position());
@@ -63,7 +64,7 @@ void runSpinCalibration()
   pros::delay(1000);
 
   odometrySystem.resetPose(units::Pose(0_in, 0_in, 0_cDeg));
-  trackingWheel.setAngle(0_stDeg);
+  horizontalTrackingWheel.setAngle(0_stDeg);
   odometrySystem.start();
   pros::delay(100);
 
@@ -75,7 +76,7 @@ void runSpinCalibration()
       pidDriveController.turnAngle(90_stDeg, 8.0, 3_sec, true);
       pros::delay(250);
 
-      double vertTravel = to_in(to_stRad(trackingWheel.getAngle()) * wheelRadius);
+      double vertTravel = to_in(to_stRad(horizontalTrackingWheel.getAngle()) * wheelRadius);
       units::Pose p = odometrySystem.getPose();
       printf("  After %d deg: vert=%.2f in | heading=%.1f | x=%.1f y=%.1f\n",
              i * 90, vertTravel, to_cDeg(p.orientation),
@@ -85,16 +86,16 @@ void runSpinCalibration()
   pros::delay(500);
 
   // Read final values
-  double finalVertTravel = to_in(to_stRad(trackingWheel.getAngle()) * wheelRadius);
+  double finalVertTravel = to_in(to_stRad(horizontalTrackingWheel.getAngle()) * wheelRadius);
   // We commanded exactly 360 deg
   double totalRotRad = 4.0 * to_stRad(90_stDeg);
 
   printf("\n=== CALIBRATION RESULTS ===\n");
   printf("  Commanded rotation: 360 deg (%.4f rad)\n", totalRotRad);
-  printf("  Vertical wheel travel: %.3f in\n", finalVertTravel);
-  double vertOffset = finalVertTravel / totalRotRad;
-  printf("\n  >>> VERTICAL OFFSET = %.3f inches <<<\n", vertOffset);
-  printf("\n  Plug this into OneWheelOdometry constructor in main.cpp\n");
+  printf("  Horizontal wheel travel: %.3f in\n", finalVertTravel);
+  double horizOffset = finalVertTravel / totalRotRad;
+  printf("\n  >>> HORIZONTAL OFFSET = %.3f inches <<<\n", horizOffset);
+  printf("\n  Plug this into TwoWheelOdometry constructor in main.cpp\n");
   printf("  Final pose: x=%.1f y=%.1f (should both be ~0 with correct offset)\n",
          to_in(odometrySystem.getPose().x), to_in(odometrySystem.getPose().y));
 }
