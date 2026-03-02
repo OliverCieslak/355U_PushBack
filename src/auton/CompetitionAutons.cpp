@@ -298,7 +298,7 @@ void Start_MatchLoad()
 
     uint32_t t0 = pros::millis();
 
-    pidDriveController.driveToPoint(units::Pose(0_in, 33_in, from_cDeg(0)), 10.0, 1_sec, false);
+    pidDriveController.driveToPoint(units::Pose(0_in, 35_in, from_cDeg(0)), 10.0, 1_sec, false);
     scraperPiston.set_value(true);
     pros::delay(10);
 
@@ -308,7 +308,7 @@ void Start_MatchLoad()
 
     pros::delay(50);
 
-    pidDriveController.driveToPoint(units::Pose(-16_in, 33_in, from_cDeg(0)), 9.0, 1.0_sec, false);
+    pidDriveController.driveToPoint(units::Pose(-16_in, 35_in, from_cDeg(0)), 8.0, 1.0_sec, false);
 
     //pros::delay(100); 
 
@@ -337,7 +337,29 @@ void MatchLoad_LongGoal() {
 
     //pros::delay(200); 
 }
+void LongGoal_ThreeBlocks() {
 
+    /*
+
+    Length x_start = -40_in;
+    Length y_start = -20_in;
+    double heading_start = -180;
+
+    units::Pose initialPose = units::Pose(x_start, y_start, from_cDeg(heading_start));
+    odometrySystem.resetPose(initialPose);
+    odometrySystem.start();
+
+    */
+
+    
+
+    
+    pidDriveController.driveToPoint(units::Pose(10_in, 33_in, from_cDeg(0)), 10.0, 1_sec, false); 
+    pidDriveController.turnAngle(from_cDeg(210), 8.0, 1_sec, true);
+    //snailState = SnailState::Long; 
+
+    //pros::delay(200); 
+}
 void MatchLoad_Wing() {
 
     /*
@@ -371,7 +393,7 @@ void MatchLoad_Wing() {
 
     snailState = SnailState::OFF; 
 
-    pidDriveController.turnAngle(from_cDeg(135), 8.0, 1_sec, true);
+    pidDriveController.turnAngle(from_cDeg(129), 8.0, 1_sec, true);
 
     pros::delay(50);
 
@@ -385,9 +407,9 @@ void MatchLoad_Wing() {
 
     //wingState = WingState::RIGHTUP;
 
-    pidDriveController.driveToPoint(units::Pose(24_in, 23_in, from_cDeg(0)), 8.0, 1.0_sec, true);
+    pidDriveController.driveToPoint(units::Pose(30_in, 23_in, from_cDeg(0)), 8.0, 1.0_sec, true);
 
-    pidDriveController.driveToPoint(units::Pose(35_in, 24_in, from_cDeg(0)), 10.0, 1.0_sec, true);
+    pidDriveController.driveToPoint(units::Pose(37_in, 23_in, from_cDeg(0)), 10.0, 1.0_sec, true);
 
     pros::delay(40); 
 }
@@ -413,4 +435,26 @@ void BaconEggAndCheese() {
     pros::delay(1900);
 
     MatchLoad_Wing();
+}
+
+void DoubleBaconAndEgg() {
+    
+    Length x_start = 0_in;
+    Length y_start = 0_in;
+    double heading_start = 0;
+
+    units::Pose initialPose = units::Pose(x_start, y_start, from_cDeg(heading_start));
+    odometrySystem.resetPose(initialPose);
+    odometrySystem.start();
+
+    uint32_t t0 = pros::millis();
+
+    Start_MatchLoad();
+
+    pros::delay(400);
+
+    MatchLoad_LongGoal();
+    pros::delay(1900);
+
+    LongGoal_ThreeBlocks();
 }

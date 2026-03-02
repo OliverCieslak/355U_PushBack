@@ -16,6 +16,7 @@ struct TrajectoryConfig {
     LinearVelocity maxVelocity;
     LinearAcceleration maxAcceleration;
     LinearAcceleration maxCentripetalAcceleration;
+    LinearJerk maxJerk = 0_inps3;  // Jerk limit (0 = unlimited, trapezoidal profile)
     bool reversed = false;
     LinearVelocity startVelocity = 0_mps;
     LinearVelocity endVelocity = 0_mps;

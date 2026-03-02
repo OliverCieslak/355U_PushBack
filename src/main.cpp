@@ -143,6 +143,11 @@ LinearVelocity maxVelocity = 80_inps;
 double accelerationSafetyFactor = 0.4;
 LinearAcceleration maxAccel = accelerationSafetyFactor * ((driveTrainTorque / (wheelDiameter / 2.0) / robotMass));
 
+// S-curve jerk limit: controls the "smoothness" of acceleration ramps.
+// Higher value = snappier but jerkier; lower = smoother but slower transitions.
+// A good starting point is 2-4× maxAccel.
+LinearJerk maxJerk = 2.5 * maxAccel / 1_sec;
+
 // Maximum centripetal acceleration calculation
 // 1. Calculate friction-limited centripetal acceleration (slip constraint)
 double frictionCoefficient = 0.6;								   // Typical rubber wheels on competition surface
@@ -175,14 +180,14 @@ localization::ParticleFilter particleFilter(
 control::PIDDriveController pidDriveController(
 	leftMotors,
 	rightMotors,
-	{trackWidth, wheelDiameter, linearKp, linearKi, linearKd, angularKp, angularKi, angularKd, kV, kS, .5_in, 1_stDeg, headingKp, headingKi, headingKd},
+	{trackWidth, wheelDiameter, linearKp, linearKi, linearKd, angularKp, angularKi, angularKd, kV, kS, .5_in, 1_stDeg, headingKp, headingKi, headingKd, kA, maxVelocity, maxAccel, maxJerk},
 	[]() { return odometrySystem.getPose(); },
 	[]() { return odometrySystem.getVelocity(); });
 
 control::PIDDriveController pidPfDriveController(
 	leftMotors,
 	rightMotors,
-	{trackWidth, wheelDiameter, linearKp, linearKi, linearKd, angularKp, angularKi, angularKd, kV, kS, .5_in, 1_stDeg, headingKp, headingKi, headingKd},
+	{trackWidth, wheelDiameter, linearKp, linearKi, linearKd, angularKp, angularKi, angularKd, kV, kS, .5_in, 1_stDeg, headingKp, headingKi, headingKd, kA, maxVelocity, maxAccel, maxJerk},
 	[]() { return particleFilter.getPose(); },
 	[]() { return particleFilter.getVelocity(); });
 rd::Selector selector({
@@ -191,7 +196,7 @@ rd::Selector selector({
 	{"Upper Side", autonLongAndUpperGoal, "", 120},
 	{"Rush Lower", autonRushLower, "", 90},
 	{"Rush Upper", autonRushUpper, "", 90},
-	{"Lower Side", autonLongAndLowerGoal, "", 120},
+	//{"Lower Side", autonLongAndLowerGoal, "", 120},
 	// {"PP Full Path", purePursuitTest, "", 240},
 	// {"PP Straight", purePursuitStraightTest, "", 120},
 	// {"PP S Curve", purePursuitSTest, "", 180},
@@ -202,12 +207,12 @@ rd::Selector selector({
 	{"Spin Calibration", runSpinCalibration, "", 30},
 	// {"PF DS Calib", calibrateParticleFilterDistanceSensorPoses, "", 55},
 	//{"PF Test", runParticleFilterTest, "", 55},
-	{"Tune kS", tuneKs, "", 55},
+	/*{"Tune kS", tuneKs, "", 55},
 	{"Tune kV", tuneKv, "", 55},
 	{"Tune kA", tuneKa, "", 55},
 	{"Tune Angular PID", tunePID_Angular, "", 30},
 	{"Tune Linear PID", tunePID_Linear, "", 30},
-	{"Tune Heading", tunePID_Heading, "", 30},
+	{"Tune Heading", tunePID_Heading, "", 30},*/
 	//{"Autotune PID", tuning::autonAutoTunePID, "", 120},
 	//{"Manual Turn", manualTurnTest, "", 55},
 	// {"Manual Linear", manualLinearTest, "", 55},
@@ -217,6 +222,7 @@ rd::Selector selector({
 	{"Match Load to Long Goal", MatchLoad_LongGoal, "", 55},
 	{"Match Load to Wing", MatchLoad_Wing, "", 55},
 	{"Bacon Egg and Cheese", BaconEggAndCheese, "", 55},
+	{"Double Bacon Egg and Cheese", DoubleBaconAndEgg, "", 120}
 });
 
 
@@ -359,7 +365,7 @@ void initialize()
  */
 void disabled()
 {
-	wingState = WingState::DOWN;
+	wingState = WingState::LEFTUP;
 }
 
 /**
