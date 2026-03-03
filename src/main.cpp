@@ -125,9 +125,9 @@ Number kS = 0.6317;
 Number kV = 0.0958006;  // Velocity feedforward (volts per velocity)
 Number kA = 0.035782; // Acceleration feedforward (volts per acceleration)
 
-double linearKp = .25;
+double linearKp = .3;
 double linearKi = 0.0;
-double linearKd = 12.0;
+double linearKd = 13.0;
 double angularKp = .5;
 double angularKi = 0.0;
 double angularKd = 38.0;
@@ -137,20 +137,18 @@ double headingKd = 8.0;
 Mass robotMass = 13.0_lb;
 Torque driveTrainTorque = 2.1_Nm; // 6 motors at 0.35 Nm each
 
-// Maximum velocity of the robot - we could calculate this from drive RPM and wheelspeed, but hardcode for now based on 600RPM on 2.75
+// Maximum velocity of the robot based on 600RPM on 2.75" wheels
 LinearVelocity maxVelocity = 80_inps;
-// Calculate a theoretical max acceleration based on torque and mass with a safety factor
-double accelerationSafetyFactor = 0.4;
-LinearAcceleration maxAccel = accelerationSafetyFactor * ((driveTrainTorque / (wheelDiameter / 2.0) / robotMass));
+// Max acceleration from motor torque and robot mass
+LinearAcceleration maxAccel = (driveTrainTorque / (wheelDiameter / 2.0) / robotMass);
 
-// S-curve jerk limit: controls the "smoothness" of acceleration ramps.
-// Higher value = snappier but jerkier; lower = smoother but slower transitions.
-// A good starting point is 2-4× maxAccel.
-LinearJerk maxJerk = 2.5 * maxAccel / 1_sec;
+// S-curve jerk limit: higher = faster (nearly trapezoidal), lower = smoother.
+// 3000 in/s³ gives ~0.05s ramp phases — barely noticeable smoothing but no speed loss.
+LinearJerk maxJerk = 375_inps3;
 
 // Maximum centripetal acceleration calculation
 // 1. Calculate friction-limited centripetal acceleration (slip constraint)
-double frictionCoefficient = 0.6;								   // Typical rubber wheels on competition surface
+double frictionCoefficient = .60;								   // Typical rubber wheels on competition surface
 LinearAcceleration maxAccelSlip = frictionCoefficient * 9.81_mps2; // μ × g
 
 // 2. Calculate tipping-limited centripetal acceleration
@@ -159,7 +157,7 @@ Length centerOfMassHeightMeters = 4_in; // Rough estimate of center of mass heig
 LinearAcceleration maxAccelTip = ((9.81_mps2 * halfTrackWidthMeters) / centerOfMassHeightMeters);
 
 // 3. Take the minimum of these constraints and apply safety factor
-double centripetalSafetyFactor = 0.5; // Conservative safety factor
+double centripetalSafetyFactor = 1.00; // Conservative safety factor
 LinearAcceleration maxCentripetalAccel = centripetalSafetyFactor * std::min(maxAccelSlip, maxAccelTip);
 
 units::Pose initialPose(0_in, 0_in, 0_cDeg); // Initial pose of the robot
@@ -205,6 +203,7 @@ rd::Selector selector({
 	// {"Gen Path Test", genPathTest, "", 55},
 	// {"Odom Test", runOdomTest, "", 55},
 	{"Spin Calibration", runSpinCalibration, "", 30},
+	{"Tune maxJerk", tuneMaxJerk, "", 30},
 	// {"PF DS Calib", calibrateParticleFilterDistanceSensorPoses, "", 55},
 	//{"PF Test", runParticleFilterTest, "", 55},
 	/*{"Tune kS", tuneKs, "", 55},

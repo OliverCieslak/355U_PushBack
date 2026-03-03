@@ -10,5 +10,6 @@
 void tuneKs();
 void tuneKv();
 void tuneKa();
+void tuneMaxJerk();
 bool loadFeedForwardCalibrationValues();
 void saveFeedForwardCalibrationValues();

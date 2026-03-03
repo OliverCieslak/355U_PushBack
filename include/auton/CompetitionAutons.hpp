@@ -32,6 +32,7 @@ extern Mass robotMass;
 extern Torque driveTrainTorque;
 extern LinearVelocity maxVelocity;
 extern LinearAcceleration maxAccel;
+extern LinearJerk maxJerk;
 extern LinearAcceleration maxCentripetalAccel;
 extern control::PIDDriveController pidDriveController;
 extern control::PIDDriveController pidPfDriveController;
