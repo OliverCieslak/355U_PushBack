@@ -13,6 +13,7 @@
 #include "liblvgl/lvgl.h"
 #include "localization/ParticleFilter.hpp"
 #include "motion/TrajectoryGenerator.hpp"
+#include "motion/PurePursuitController.hpp"
  #include "odometry/SkidSteerOdometry.hpp"
 // #include "odometry/OneWheelOdometry.hpp"
 #include "odometry/TwoWheelOdometry.hpp"
@@ -102,7 +103,7 @@ units::Pose frontSensorPos(-4.0_in, 7.0_in, from_cDeg(0.0));
 // Robot is 27 holes wide, drivepods are 5 holes wide
 // Track = (27 - 5) holes × 0.5"/hole = 11.0"
 Length trackWidth = 11.0_in;
-Length wheelDiameter = 2.817_in; // Calibrated wheel diameter (nominal 2.75 × 49/47.84)
+Length wheelDiameter = 2.75_in;         // Calibrated wheel diameter (nominal 2.75 × 49/47.84)
 // Number kS = 0.0;						// Static friction (volts)
 /*
 Number kS = 0.4217;
@@ -163,8 +164,8 @@ odometry::TwoWheelOdometry odometrySystem(
 	imu,
 	trackingWheelDiameter,  // vertical wheel diameter
 	trackingWheelDiameter,  // horizontal wheel diameter
-	0.338_in,   // vertical wheel lateral offset (calibrated via spin-in-place)
-	-4.079_in,   // horizontal wheel longitudinal offset (calibrated via spin-in-place)
+	0.352_in,   // vertical wheel lateral offset (avg of 3 calibration runs)
+	-4.081_in,   // horizontal wheel longitudinal offset (avg of 3 calibration runs)
 	initialPose);
 localization::ParticleFilter particleFilter(
 	[]() { return odometrySystem.getPose(); },
@@ -183,6 +184,13 @@ control::PIDDriveController pidPfDriveController(
 	{trackWidth, wheelDiameter, linearKp, linearKi, linearKd, angularKp, angularKi, angularKd, kV, kS, .5_in, 1_stDeg, headingKp, headingKi, headingKd},
 	[]() { return particleFilter.getPose(); },
 	[]() { return particleFilter.getVelocity(); });
+
+control::DifferentialDriveConfig driveConfig(trackWidth, wheelDiameter, kV, kA, kS);
+
+motion::PurePursuitController purePursuitController(
+	leftMotors, rightMotors, driveConfig,
+	[]() { return odometrySystem.getPose(); }
+);
 rd::Selector selector({
 	// {"Red Skills", autonSkillsRedSideOnly, "", 120},
 	// {"Skills", autonSkills, "", 240},
@@ -196,8 +204,8 @@ rd::Selector selector({
 	// {"CG Only", autonCenterGoalOnly, "", 240},
 	// {"LZ LG CG", autonLoadingZoneLongGoalCenterGoal, "", 240},
 	// {"Gen Path Test", genPathTest, "", 55},
-	// {"Odom Test", runOdomTest, "", 55},
-	{"Spin Calibration", runSpinCalibration, "", 30},
+	{"Odom Test", runOdomTest, "", 55},
+	// {"Spin Calibration", runSpinCalibration, "", 30},
 	{"Tune maxJerk", tuneMaxJerk, "", 30},
 	// {"PF DS Calib", calibrateParticleFilterDistanceSensorPoses, "", 55},
 	//{"PF Test", runParticleFilterTest, "", 55},
@@ -211,7 +219,7 @@ rd::Selector selector({
 	//{"Manual Turn", manualTurnTest, "", 55},
 	// {"Manual Linear", manualLinearTest, "", 55},
 	// {"Path Test", runPathTest, "", 55},
-	{"Movement Test", movementTest, "", 55},
+	// {"Movement Test", movementTest, "", 55},
 	{"mpStartToML", mpStartToMatchLoader, "", 55},
 	{"Start to Match Load", Start_MatchLoad, "", 55},
 	{"Match Load to Long Goal", MatchLoad_LongGoal, "", 55},

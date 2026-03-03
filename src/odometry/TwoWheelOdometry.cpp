@@ -85,6 +85,21 @@ units::Pose TwoWheelOdometry::update() {
     Angle horizDelta = curHorizPos - m_prevHorizontalPos;
     Angle deltaTheta = rawHeading  - m_prevHeading;
 
+    // ---- Sanity guard: reject obviously bad sensor reads ----
+    // If any value is NaN or unreasonably large (>180° in 10ms → impossible),
+    // skip this cycle entirely to prevent NaN from poisoning the pose.
+    auto isGoodAngle = [](Angle a) {
+        double v = a.internal();
+        return std::isfinite(v) && std::fabs(v) < 1e6; // ~180° in internal units
+    };
+    if (!isGoodAngle(vertDelta) || !isGoodAngle(horizDelta) || !isGoodAngle(deltaTheta)) {
+        // Bad read — update prev values so next cycle computes a fresh delta
+        m_prevVerticalPos   = curVertPos;
+        m_prevHorizontalPos = curHorizPos;
+        m_prevHeading       = rawHeading;
+        return m_pose;
+    }
+
     // ---- RAII mutex guard ----
     struct Guard {
         pros::Mutex& m; Guard(pros::Mutex& mx) : m(mx) { m.take(20); }
@@ -158,8 +173,14 @@ units::Pose TwoWheelOdometry::update() {
     // Rotation matrix applied to (forward, lateral) in the midpoint frame:
     //   Δx_global = forward·cos(mid) - lateral·sin(mid)
     //   Δy_global = forward·sin(mid) + lateral·cos(mid)
-    m_pose.x += localForward * cosH - localLateral * sinH;
-    m_pose.y += localForward * sinH + localLateral * cosH;
+    Length dx = localForward * cosH - localLateral * sinH;
+    Length dy = localForward * sinH + localLateral * cosH;
+
+    // Final NaN guard — never allow NaN to enter the accumulated pose
+    if (std::isfinite(dx.internal()) && std::isfinite(dy.internal())) {
+        m_pose.x += dx;
+        m_pose.y += dy;
+    }
     m_pose.orientation = units::constrainAngle180(rawHeading);
 
     // ---- velocity estimation ----

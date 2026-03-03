@@ -88,6 +88,9 @@ public:
         const PurePursuitConfig& config = PurePursuitConfig{}
     );
 
+    /// Stop any running task and clean up
+    ~PurePursuitController();
+
     // ── Path / trajectory ──────────────────────────────────────────────
     void setPath(const std::vector<units::Pose>& path);
     void setTrajectory(const motion::Trajectory& traj);
@@ -114,6 +117,7 @@ public:
 
     // Expose update so background task can call it
     bool update(Time dt);
+    bool m_taskRunning = false;  // true while the RTOS task is alive
 
 private:
     lemlib::MotorGroup& m_leftMotors;

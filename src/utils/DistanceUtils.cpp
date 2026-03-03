@@ -161,7 +161,10 @@ Length calculateExpectedDistance(const units::Pose& robotPose, const units::Pose
             return 0_radpm;
         }
         Length s = (a + b + c) / 2.0;
-        Area triangleArea = units::sqrt(s * (s - a) * (s - b) * (s - c));
+        auto heronProduct = s * (s - a) * (s - b) * (s - c);
+        // Guard against negative values from floating-point error on collinear points
+        if (heronProduct.internal() < 0) heronProduct = decltype(heronProduct)(0.0);
+        Area triangleArea = units::sqrt(heronProduct);
         if (triangleArea < 1e-6_in2) return 0_radpm;
     // Raw magnitude using lengths in inches -> store directly as 1/in (treat internal units consistently with other code paths)
     Curvature mag = Curvature(4.0 * triangleArea / (a * b * c));

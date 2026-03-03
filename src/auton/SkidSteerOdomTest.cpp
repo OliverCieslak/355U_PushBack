@@ -1,6 +1,7 @@
 #include "auton/SkidSteerOdomTest.hpp"
 #include "pros/motors.hpp"
 #include "pros/motor_group.hpp"
+#include "pros/rotation.hpp"
 #include "hardware/Motor/MotorGroup.hpp"
 #include "hardware/Encoder/V5RotationSensor.hpp"
 #include "hardware/IMU/V5InertialSensor.hpp"
@@ -26,9 +27,11 @@ extern pros::Motor prosRight3;
 void runOdomTest()
 {
   printf("Running odometry test...\n");
-  odometrySystem.resetPose(units::Pose(0_in, 0_in, 0_cDeg));
-  // reset tracking wheel encoder so deltas are easy to read
+  // reset tracking wheel encoder FIRST so resetPose captures the zeroed value
   verticalTrackingWheel.setAngle(0_stDeg);
+  horizontalTrackingWheel.setAngle(0_stDeg);
+  pros::delay(20); // let sensor registers settle
+  odometrySystem.resetPose(units::Pose(0_in, 0_in, 0_cDeg));
   printf("Started odom....\n");
   odometrySystem.start();
   Time startTime = from_msec(pros::millis());
@@ -43,7 +46,12 @@ void runOdomTest()
       // Tracking wheel travel in inches
       double vertTravel = to_in(to_stRad(verticalTrackingWheel.getAngle()) * wheelRadius);
 
-      printf("\tVertWheel: %.2f in\n", vertTravel);
+      // Raw PROS rotation sensor diagnostic (port 9)
+      pros::Rotation rawRot(9);
+      printf("\tVertWheel: %.2f in  (rawCdeg=%d, connected=%d)\n",
+             vertTravel, rawRot.get_position(), rawRot.is_installed());
+      printf("\tHorizWheel raw: (port20 cdeg=%d, connected=%d)\n",
+             pros::Rotation(20).get_position(), pros::Rotation(20).is_installed());
       printf("\tProsLeftMotors: %.2f, ProsRightMotors: %.2f\n", prosLeftMotors.get_position(), prosRightMotors.get_position());
       // Print current position for debugging
       printf("Current Position: x=%.1f, y=%.1f, theta=%.2f\n", 

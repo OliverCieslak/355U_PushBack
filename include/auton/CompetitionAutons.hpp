@@ -3,6 +3,7 @@
 #include "hardware/Motor/MotorGroup.hpp"
 #include "localization/ParticleFilter.hpp"
 #include "main.h"
+#include "motion/PurePursuitController.hpp"
 #include "motion/TrajectoryGenerator.hpp"
 #include "odometry/TwoWheelOdometry.hpp"
 #include "pros/adi.hpp"
@@ -35,6 +36,8 @@ extern LinearAcceleration maxAccel;
 extern LinearAcceleration maxCentripetalAccel;
 extern control::PIDDriveController pidDriveController;
 extern control::PIDDriveController pidPfDriveController;
+extern control::DifferentialDriveConfig driveConfig;
+extern motion::PurePursuitController purePursuitController;
 extern odometry::TwoWheelOdometry odometrySystem;
 extern localization::ParticleFilter particleFilter;
 extern LeftOrRight autonStartingPosition;

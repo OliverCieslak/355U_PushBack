@@ -5,6 +5,7 @@
 #include "units/Angle.hpp"
 #include "control/DifferentialDriveConfig.hpp"
 #include "main.h"
+#include <cmath>
 // use this for debugging odometry pose
 /*{
     auto startPose = odometrySystem.getPose();
@@ -460,5 +461,183 @@ void DoubleBaconAndEgg() {
 }
 
 void mpStartToMatchLoader() {
+    units::Pose initialPose = units::Pose(0_in, 0_in, from_cDeg(0));
+    odometrySystem.resetPose(initialPose);
+    odometrySystem.start();
+
+    uint32_t t0 = pros::millis();
+
+    // ── Curved path: start (0,0) heading 0°, curve to match loader at (-9,36) heading -90° ──
+    motion::TrajectoryConfig trajCfg(maxVelocity, maxAccel, 80_inps2);
+
+    // Waypoints with headings that guide the spline into a smooth curve:
+    //   Start:  (0, 0)   heading 0°   → driving straight forward
+    //   Mid:    (0, 16)  heading -20°  → gentler initial curve
+    //   End:    (-13, 25.5) heading -90°  → facing left at the match loader
+    std::vector<units::Pose> waypoints = {
+        units::Pose( 0_in,  0_in, from_cDeg(0)),
+        units::Pose( 0_in, 15_in, from_cDeg(-20)),
+        units::Pose(-13_in, from_in(25.5), from_cDeg(-90))
+    };
+
+    auto traj = motion::TrajectoryGenerator::generateTrajectory(waypoints, trajCfg);
+    printf("Traj: %zu pts, dist=%.1f in, dur=%.2f s\n",
+           traj.getStates().size(),
+           to_in(traj.getTotalDistance()),
+           to_sec(traj.getTotalTime()));
+
+    // ── Pure pursuit controller (global) ──
+    motion::PurePursuitConfig ppCfg;
+    ppCfg.lookahead = 8_in;
+    ppCfg.waypointTolerance = 2_in;
+    ppCfg.finalPivot = true;
+    ppCfg.finalPivotTolerance = from_stDeg(5);
+    ppCfg.dynamicLookahead = true;
+    ppCfg.dynLookMin = 6_in;
+    ppCfg.dynLookMax = 14_in;
+
+    purePursuitController.setConfig(ppCfg);
+    purePursuitController.setTrajectory(traj);
+    purePursuitController.setRequireFinalHeading(true);
+
+    // ── Follow with telemetry ──
+    purePursuitController.followPath(true); // async
+    while (purePursuitController.isFollowing()) {
+        auto pose = odometrySystem.getPose();
+        printf("[%5lums] x=%.1f y=%.1f hC=%.1f\n",
+               (unsigned long)(pros::millis() - t0),
+               to_in(pose.x), to_in(pose.y), to_cDeg(pose.orientation));
+        pros::delay(200);
+    }
+
+    auto endPose = odometrySystem.getPose();
+    printf("[%5lums] DONE x=%.2f y=%.2f hComp=%.1f\n",
+           (unsigned long)(pros::millis() - t0),
+           to_in(endPose.x), to_in(endPose.y), to_cDeg(endPose.orientation));
+    purePursuitController.stop();
+
+
+    //////////////////////////////////////////////////////////////////////
+    // next movement: load from match loader
+    pros::delay(500); // Load blocks from ML
+
+    //////////////////////////////////////////////////////////////////////
+    // next movement: drive backwards to long goal (fixed target, reversed)
+    {
+        control::PIDDriveController::Point longGoalPt(14_in, 32_in);
+        pidDriveController.driveToPoint(longGoalPt, 6.0, 2_sec, true, true);
+    }
+    {
+        auto pose = odometrySystem.getPose();
+        printf("[%5lums] afterReverse x=%.2f y=%.2f hComp=%.1f\n",
+               (unsigned long)(pros::millis() - t0),
+               to_in(pose.x), to_in(pose.y), to_cDeg(pose.orientation));
+    }
+
+    pros::delay(750); // Score blocks
+
+    //////////////////////////////////////////////////////////////////////
+    // next movement: drive forward away from long goal (fixed target)
+    {
+        control::PIDDriveController::Point pullForwardPt(0_in, 32_in);
+        pidDriveController.driveToPoint(pullForwardPt, 8.0, 1_sec, false, true);
+    }
+    {
+        auto pose = odometrySystem.getPose();
+        printf("[%5lums] afterForward x=%.2f y=%.2f hComp=%.1f\n",
+               (unsigned long)(pros::millis() - t0),
+               to_in(pose.x), to_in(pose.y), to_cDeg(pose.orientation));
+    }
+
+    //////////////////////////////////////////////////////////////////////
+    // next movement: S-curve backwards — 8" left, 24" back (robot frame)
+    {
+        auto startPose = odometrySystem.getPose();
+        double sx = to_in(startPose.x);
+        double sy = to_in(startPose.y);
+        double h  = to_stRad(startPose.orientation); // heading in standard radians
+
+        // Backward and Left unit vectors in field frame
+        double backX = -std::cos(h), backY = -std::sin(h);   // backward
+        double leftX = -std::sin(h), leftY =  std::cos(h);   // robot left
+
+        // Mid-point: 10" back, 18" left (apex of outward curve)
+        double midX = sx + backX * 10.0 + leftX * 18.0;
+        double midY = sy + backY * 10.0 + leftY * 18.0;
+        // End-point: 24" back, 6" left (pulls back close to goal line)
+        double endX = sx + backX * 24.0 + leftX * 6.0;
+        double endY = sy + backY * 24.0 + leftY * 6.0;
+
+        // For reversed trajectory, the trajectory generator uses waypoint
+        // headings as spline tangent directions.  Tangents must point in the
+        // direction of TRAVEL (backward), not the robot's facing direction.
+        double backH = h + M_PI; // backward heading in standard radians
+        Angle startSplineH = from_stRad(backH);
+        Angle midSplineH   = from_stRad(backH - 0.50); // ~30° toward robot left
+        Angle endSplineH   = from_stRad(backH + 0.40);   // ~23° back toward right (completing S)
+
+        printf("S-curve wp: start(%.1f,%.1f) mid(%.1f,%.1f) end(%.1f,%.1f) backH=%.1f\n",
+               sx, sy, midX, midY, endX, endY, backH * 180.0 / M_PI);
+
+        motion::TrajectoryConfig trajCfg2(maxVelocity, maxAccel, 80_inps2);
+        trajCfg2.setReversed(true);
+
+        std::vector<units::Pose> sCurveWaypoints = {
+            units::Pose(from_in(sx), from_in(sy), startSplineH),
+            units::Pose(from_in(midX), from_in(midY), midSplineH),
+            units::Pose(from_in(endX), from_in(endY), endSplineH)
+        };
+
+        auto sTraj = motion::TrajectoryGenerator::generateTrajectory(sCurveWaypoints, trajCfg2);
+        printf("S-curve traj: %zu pts, dist=%.1f in, dur=%.2f s\n",
+               sTraj.getStates().size(),
+               to_in(sTraj.getTotalDistance()),
+               to_sec(sTraj.getTotalTime()));
+
+        motion::PurePursuitConfig ppCfg2;
+        ppCfg2.lookahead = 8_in;
+        ppCfg2.waypointTolerance = 2_in;
+        ppCfg2.finalPivot = false;
+        ppCfg2.dynamicLookahead = true;
+        ppCfg2.dynLookMin = 6_in;
+        ppCfg2.dynLookMax = 14_in;
+
+        purePursuitController.setConfig(ppCfg2);
+        purePursuitController.setTrajectory(sTraj);
+        purePursuitController.setRequireFinalHeading(false);
+
+        purePursuitController.followPath(true); // async
+        while (purePursuitController.isFollowing()) {
+            auto pose = odometrySystem.getPose();
+            printf("[%5lums] Scurve x=%.1f y=%.1f hC=%.1f\n",
+                   (unsigned long)(pros::millis() - t0),
+                   to_in(pose.x), to_in(pose.y), to_cDeg(pose.orientation));
+            pros::delay(200);
+        }
+
+        auto sPose = odometrySystem.getPose();
+        printf("[%5lums] S-DONE x=%.2f y=%.2f hComp=%.1f\n",
+               (unsigned long)(pros::millis() - t0),
+               to_in(sPose.x), to_in(sPose.y), to_cDeg(sPose.orientation));
+        purePursuitController.stop();
+    }
+
+    //////////////////////////////////////////////////////////////////////
+    // next movement: reverse 15" to swipe blocks toward control zone
+    {
+        auto pose = odometrySystem.getPose();
+        double h = to_stRad(pose.orientation);
+        // 15" behind the robot
+        double tgtX = to_in(pose.x) - std::cos(h) * 15.0;
+        double tgtY = to_in(pose.y) - std::sin(h) * 15.0;
+        control::PIDDriveController::Point swipePt(from_in(tgtX), from_in(tgtY));
+        pidDriveController.driveToPoint(swipePt, 8.0, 2_sec, true, true);
+    }
+    {
+        auto pose = odometrySystem.getPose();
+        printf("[%5lums] afterSwipe x=%.2f y=%.2f hComp=%.1f\n",
+               (unsigned long)(pros::millis() - t0),
+               to_in(pose.x), to_in(pose.y), to_cDeg(pose.orientation));
+    }
 
 }
