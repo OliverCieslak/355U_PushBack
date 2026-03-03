@@ -3,7 +3,6 @@
 #include "control/ActionScheduler.hpp"
 #include "control/PID.hpp"
 #include "hardware/Motor/MotorGroup.hpp"
-#include "motion/SCurveProfile.hpp"
 #include "units/Angle.hpp"
 #include "units/Pose.hpp"
 #include "units/units.hpp"
@@ -41,16 +40,10 @@ struct PIDDriveConfig {
     // Feedforward constants
     Number kV;                   // Velocity feedforward constant (volts per velocity)
     Number kS;                   // Static friction feedforward constant (volts)
-    Number kA;                   // Acceleration feedforward constant (volts per acceleration)
     
     // Tolerances for considering motion complete
     Length linearTolerance;      // Linear position tolerance
     Angle angularTolerance;      // Angular position tolerance
-
-    // S-curve motion profiling parameters (set maxJerk > 0 to enable)
-    LinearVelocity maxVelocity;          // Max velocity for profiled moves
-    LinearAcceleration maxAcceleration;  // Max acceleration for profiled moves
-    LinearJerk maxJerk;                  // Max jerk (0 = disabled, uses PID-only)
 
     /**
      * @brief Construct a PID drive controller configuration with default values
@@ -73,20 +66,15 @@ struct PIDDriveConfig {
         Angle angularTolerance = 2_stDeg,
         double headingKp = -1.0,
         double headingKi = -1.0,
-        double headingKd = -1.0,
-        Number kA = 0.0,
-        LinearVelocity maxVelocity = 0_inps,
-        LinearAcceleration maxAcceleration = 0_inps2,
-        LinearJerk maxJerk = 0_inps3
+        double headingKd = -1.0
     ) : trackWidth(trackWidth), wheelDiameter(wheelDiameter),
         linearKp(linearKp), linearKi(linearKi), linearKd(linearKd),
         angularKp(angularKp), angularKi(angularKi), angularKd(angularKd),
         headingKp(headingKp < 0 ? angularKp : headingKp),
         headingKi(headingKi < 0 ? angularKi : headingKi),
         headingKd(headingKd < 0 ? angularKd : headingKd),
-        kV(kV), kS(kS), kA(kA),
-        linearTolerance(linearTolerance), angularTolerance(angularTolerance),
-        maxVelocity(maxVelocity), maxAcceleration(maxAcceleration), maxJerk(maxJerk) {}
+        kV(kV), kS(kS),
+        linearTolerance(linearTolerance), angularTolerance(angularTolerance) {}
 };
 
 /**
@@ -542,11 +530,6 @@ private:
     
     // Static constant for pose blend distance
     static constexpr Length POSE_BLEND_DISTANCE = 3_in;
-
-    // S-curve motion profiles (created per-move when maxJerk > 0)
-    motion::SCurveProfile m_linearProfile;
-    motion::SCurveProfile m_angularProfile;
-    bool m_useScurve = false;   // true when S-curve profiling is active
 
     // Boomerang control state
     BoomerangPathConfig m_boomerangConfig;

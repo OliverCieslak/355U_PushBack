@@ -60,18 +60,6 @@ bool PIDDriveController::driveDistance(Length distance, Number maxVoltage, Time 
     
     // Reset action execution flags
     m_actionScheduler.resetActions();
-
-    // Create S-curve profile if jerk limiting is configured and distance is long enough
-    m_useScurve = (to_inps3(m_config.maxJerk) > 0.0) && (std::abs(to_in(distance)) >= 6.0);
-    if (m_useScurve) {
-        double dist = std::abs(to_in(distance));
-        double maxVel = to_inps(m_config.maxVelocity);
-        if (maxVel <= 0.0) maxVel = 80.0;
-        double maxAcc = to_inps2(m_config.maxAcceleration);
-        if (maxAcc <= 0.0) maxAcc = 200.0;
-        double maxJrk = to_inps3(m_config.maxJerk);
-        m_linearProfile = motion::SCurveProfile(dist, maxVel, maxAcc, maxJrk);
-    }
     
     // If waiting, loop until settled or timeout
     if (waitUntilSettled) {
@@ -113,22 +101,6 @@ bool PIDDriveController::driveToPoint(const Point& targetPoint, Number maxVoltag
 
     // Reset action execution flags
     m_actionScheduler.resetActions();
-
-    // Create S-curve velocity profile for smooth approach (skip for short moves < 6")
-    {
-        units::Pose curPose = m_poseProvider();
-        units::Pose tgtPose{targetPoint.x, targetPoint.y, 0_stRad};
-        double dist = to_in(curPose.distanceTo(tgtPose));
-    m_useScurve = (to_inps3(m_config.maxJerk) > 0.0) && (dist >= 6.0);
-    if (m_useScurve) {
-        double maxVel = to_inps(m_config.maxVelocity);
-        if (maxVel <= 0.0) maxVel = 80.0;
-        double maxAcc = to_inps2(m_config.maxAcceleration);
-        if (maxAcc <= 0.0) maxAcc = 200.0;
-        double maxJrk = to_inps3(m_config.maxJerk);
-        m_linearProfile = motion::SCurveProfile(dist, maxVel, maxAcc, maxJrk);
-    }
-    } // end scope for curPose/tgtPose
 
     if (waitUntilSettled) {
         uint32_t now = pros::millis();
@@ -222,32 +194,6 @@ bool PIDDriveController::turnToHeading(
     // Reset action execution flags
     m_actionScheduler.resetActions();
 
-    // Create angular S-curve profile for smooth turning (skip for small turns < 20°)
-    {
-    double angDist_check = std::abs(to_stDeg(units::constrainAngle180(targetHeading - m_initialHeading)));
-    m_useScurve = (to_inps3(m_config.maxJerk) > 0.0) && (angDist_check >= 20.0);
-    }
-    if (m_useScurve) {
-        // Profile in degrees. Convert max linear velocity/accel/jerk to angular
-        // equivalents using arc-length relationship: v_angular (deg/s) = v_linear /
-        // (trackWidth/2) * (180/pi).
-        double halfTrack = to_in(m_config.trackWidth) / 2.0;
-        double rad2deg = 180.0 / M_PI;
-
-        double maxVel = to_inps(m_config.maxVelocity);
-        if (maxVel <= 0.0) maxVel = 80.0;
-        double maxAcc = to_inps2(m_config.maxAcceleration);
-        if (maxAcc <= 0.0) maxAcc = 200.0;
-        double maxJrk = to_inps3(m_config.maxJerk);
-
-        double angMaxVel = (maxVel / halfTrack) * rad2deg;
-        double angMaxAcc = (maxAcc / halfTrack) * rad2deg;
-        double angMaxJrk = (maxJrk / halfTrack) * rad2deg;
-
-        double angDist = std::abs(to_stDeg(units::constrainAngle180(targetHeading - m_initialHeading)));
-        m_angularProfile = motion::SCurveProfile(angDist, angMaxVel, angMaxAcc, angMaxJrk);
-    }
-    
     // If waiting, loop until settled or timeout
     if (waitUntilSettled) {
         uint32_t now = pros::millis();
@@ -332,21 +278,6 @@ bool PIDDriveController::driveToPoseBoomerang(
     
     // Reset action execution flags
     m_actionScheduler.resetActions();
-
-    // Create S-curve velocity envelope for smooth accel / decel
-    m_useScurve = (to_inps3(m_config.maxJerk) > 0.0);
-    if (m_useScurve) {
-        units::Pose curPose = m_poseProvider();
-        double dist = to_in(curPose.distanceTo(targetPose));
-        double maxVel = to_inps(m_config.maxVelocity);
-        if (maxVel <= 0.0 && m_config.kV.internal() > 0.0)
-            maxVel = (maxVoltage.internal() - m_config.kS.internal()) / m_config.kV.internal();
-        if (maxVel <= 0.0) maxVel = 80.0;
-        double maxAcc = to_inps2(m_config.maxAcceleration);
-        if (maxAcc <= 0.0) maxAcc = 60.0;
-        double maxJrk = to_inps3(m_config.maxJerk);
-        m_linearProfile = motion::SCurveProfile(dist, maxVel, maxAcc, maxJrk);
-    }
     
     // If waiting, loop until settled or timeout
     if (waitUntilSettled) {
@@ -427,35 +358,9 @@ bool PIDDriveController::update(Time dt) {
             // Calculate heading error
             Angle headingError = units::constrainAngle180(currentPose.orientation - m_initialHeading);
 
-            Number linearOutput = 0.0;
-
-            if (m_useScurve) {
-                // ---- S-curve profiled motion ----
-                double elapsedSec = to_sec(m_elapsedTime);
-                motion::SCurveState ref = m_linearProfile.sample(elapsedSec);
-
-                double direction = (m_linearTarget > 0_in) ? 1.0 : -1.0;
-                double actualPos = to_in(m_accumulatedDistance);
-                double trackingError = ref.position - actualPos;
-
-                // PID on tracking error (small correction for disturbances)
-                Number pidCorrection = m_linearController.calculate(-trackingError, 0.0, to_msec(m_elapsedTime));
-
-                // Feedforward: kV * desiredVelocity + kA * desiredAcceleration + kS
-                Number ff = 0.0;
-                if (ref.velocity > 0.001) {
-                    ff = m_config.kV * ref.velocity
-                       + m_config.kA * ref.acceleration
-                       + m_config.kS;
-                }
-
-                linearOutput = direction * (ff + pidCorrection);
-            } else {
-                // ---- Original PID-only behavior ----
-                Length signedDistance = units::sgn(m_linearTarget) * m_accumulatedDistance;
-                Length linearError = m_linearTarget - signedDistance;
-                linearOutput = m_linearController.calculate(-to_in(linearError), 0.0, to_msec(m_elapsedTime));
-            }
+            Length signedDistance_err = units::sgn(m_linearTarget) * m_accumulatedDistance;
+            Length linearError = m_linearTarget - signedDistance_err;
+            Number linearOutput = m_linearController.calculate(-to_in(linearError), 0.0, to_msec(m_elapsedTime));
 
             Number headingCorrection = m_headingController.calculate(to_stDeg(headingError), 0, to_msec(m_elapsedTime));
             // Limit headingCorrection to ±50% of linearOutput
@@ -487,43 +392,10 @@ bool PIDDriveController::update(Time dt) {
             // Positive error means we should turn in the positive direction.
             Angle headingError = units::constrainAngle180(m_angularTarget - currentPose.orientation);
 
-            Number angularOutput = 0.0;
+            Number angularOutput = m_angularController.calculate(-to_stDeg(headingError), 0.0, to_msec(m_elapsedTime));
 
-            if (m_useScurve && !m_turnToPointActive) {
-                // ---- S-curve profiled turning ----
-                // Profile is in degrees (always positive). Direction is the sign
-                // of the initial heading error.
-                double elapsedSec = to_sec(m_elapsedTime);
-                motion::SCurveState ref = m_angularProfile.sample(elapsedSec);
-
-                Angle initialError = units::constrainAngle180(m_angularTarget - m_initialHeading);
-                double direction = (to_stDeg(initialError) >= 0.0) ? 1.0 : -1.0;
-
-                // Tracking error: how far behind the reference we are
-                double traveledDeg = std::abs(to_stDeg(currentPose.orientation - m_initialHeading));
-                double trackingError = ref.position - traveledDeg;
-
-                // PID on tracking error — scale down since feedforward handles most of the work.
-                // Full PID gains were tuned for PID-only mode; 25% is enough for correction.
-                Number pidCorrection = 0.25 * m_angularController.calculate(-trackingError, 0.0, to_msec(m_elapsedTime));
-
-                // Velocity feedforward: convert desired angular velocity (deg/s) to
-                // wheel linear velocity, then to voltage.
-                // For a TANK turn: v_wheel = ω * (π/180) * trackWidth/2
-                Number ff = 0.0;
-                if (ref.velocity > 0.01) {
-                    double halfTrack = to_in(m_config.trackWidth) / 2.0;
-                    double wheelVel = ref.velocity * (M_PI / 180.0) * halfTrack;
-                    double wheelAcc = ref.acceleration * (M_PI / 180.0) * halfTrack;
-                    ff = m_config.kV * wheelVel + m_config.kA * wheelAcc + m_config.kS;
-                }
-
-                angularOutput = direction * (ff + pidCorrection);
-            } else {
-                // ---- Original PID-only behavior ----
-                angularOutput = m_angularController.calculate(-to_stDeg(headingError), 0.0, to_msec(m_elapsedTime));
-
-                // Tapered static friction feedforward
+            // Tapered static friction feedforward
+            {
                 double absErr = std::abs(to_stDeg(headingError));
                 constexpr double kS_fadeStart = 3.0;
                 double kS_scale = std::min(absErr / kS_fadeStart, 1.0);
@@ -576,63 +448,37 @@ bool PIDDriveController::update(Time dt) {
             Angle angularError = units::constrainAngle180(adjustedOrientation - headingToTarget);
             Length linearError = distanceToTarget * units::cos(angularError);
 
-            Number linearOutput = 0.0;
+            Number linearOutput = m_linearController.calculate(-to_in(linearError), 0.0, to_msec(m_elapsedTime));
 
-            if (m_useScurve && m_linearProfile.totalTime() > 0.001) {
-                // ---- S-curve profiled driveToPoint ----
-                double elapsedSec = to_sec(m_elapsedTime);
-                motion::SCurveState ref = m_linearProfile.sample(elapsedSec);
+            // ×2 gain boost for driveToPoint to overcome static friction
+            linearOutput *= 2.0;
 
-                double direction = m_pointReversed ? -1.0 : 1.0;
-                double actualPos = to_in(m_accumulatedDistance);
-                double trackingError = ref.position - actualPos;
+            if (m_pointReversed) linearOutput = -linearOutput;
 
-                // PID on tracking error (small correction for disturbances)
-                Number pidCorrection = m_linearController.calculate(-trackingError, 0.0, to_msec(m_elapsedTime));
-
-                // Feedforward: kV * desiredVelocity + kA * desiredAcceleration + kS
-                Number ff = 0.0;
-                if (ref.velocity > 0.001) {
-                    ff = m_config.kV * ref.velocity
-                       + m_config.kA * ref.acceleration
-                       + m_config.kS;
+            // Limit approach speed when close to prevent momentum overshoot.
+            {
+                constexpr double rampStartIn = 18.0;
+                constexpr double minFraction = 0.15;
+                double distIn = std::abs(to_in(distanceToTarget));
+                if (distIn < rampStartIn) {
+                    double fraction = minFraction + (1.0 - minFraction) * (distIn / rampStartIn);
+                    Number maxOutput = m_maxVoltage * fraction;
+                    linearOutput = units::clamp(linearOutput, -maxOutput, maxOutput);
                 }
+            }
 
-                linearOutput = direction * (ff + pidCorrection);
-            } else {
-                // ---- Original PID-only behavior ----
-                linearOutput = m_linearController.calculate(-to_in(linearError), 0.0, to_msec(m_elapsedTime));
+            // Velocity damping near target
+            if (distanceToTarget < 8_in && m_velocityProvider) {
+                LinearVelocity vel = m_velocityProvider().first;
+                Number damping = m_config.kV * to_inps(vel) * 3.0;
+                linearOutput -= damping;
+            }
 
-                // ×2 gain boost for driveToPoint to overcome static friction
-                linearOutput *= 2.0;
-
-                if (m_pointReversed) linearOutput = -linearOutput;
-
-                // Limit approach speed when close to prevent momentum overshoot.
-                {
-                    constexpr double rampStartIn = 18.0;
-                    constexpr double minFraction = 0.15;
-                    double distIn = std::abs(to_in(distanceToTarget));
-                    if (distIn < rampStartIn) {
-                        double fraction = minFraction + (1.0 - minFraction) * (distIn / rampStartIn);
-                        Number maxOutput = m_maxVoltage * fraction;
-                        linearOutput = units::clamp(linearOutput, -maxOutput, maxOutput);
-                    }
-                }
-
-                // Velocity damping near target
-                if (distanceToTarget < 8_in && m_velocityProvider) {
-                    LinearVelocity vel = m_velocityProvider().first;
-                    Number damping = m_config.kV * to_inps(vel) * 3.0;
-                    linearOutput -= damping;
-                }
-
-                // Tapered static friction (kS) feedforward
-                {
-                    double kS_scale = std::min(to_in(distanceToTarget) / 2.0, 1.0);
-                    if (linearOutput != 0.0) {
-                        linearOutput += units::sgn(linearOutput) * m_config.kS * kS_scale;
-                    }
+            // Tapered static friction (kS) feedforward
+            {
+                double kS_scale = std::min(to_in(distanceToTarget) / 2.0, 1.0);
+                if (linearOutput != 0.0) {
+                    linearOutput += units::sgn(linearOutput) * m_config.kS * kS_scale;
                 }
             }
 
@@ -672,22 +518,6 @@ bool PIDDriveController::update(Time dt) {
         case MotionType::POSE: {
             // Boomerang control implementation
             
-            // S-curve velocity envelope: modulate maxLateralSpeed over time
-            // so the robot accelerates smoothly at the start and decelerates
-            // smoothly near the end, instead of jumping to full speed instantly.
-            if (m_useScurve && m_linearProfile.totalTime() > 0.001) {
-                double elapsedSec = to_sec(m_elapsedTime);
-                motion::SCurveState ref = m_linearProfile.sample(elapsedSec);
-                // Normalize desired velocity to 0..1 range as a speed cap
-                double achievedMax = m_linearProfile.achievedMaxVelocity();
-                double speedCap = (achievedMax > 0.001) ? (ref.velocity / achievedMax) : 1.0;
-                // Floor at minLateralSpeed so the robot never stalls mid-approach
-                double minSpeed = std::abs(m_boomerangConfig.minLateralSpeed.internal());
-                speedCap = std::max(speedCap, minSpeed);
-                // Apply as dynamic maxLateralSpeed
-                m_boomerangConfig.maxLateralSpeed = Number(speedCap);
-            }
-
             // Check if the robot is close enough to the target to start settling
             Length distanceToTarget = currentPose.distanceTo(m_poseTarget);
             if (distanceToTarget < m_boomerangConfig.closeDistance && !m_isCloseToTarget) {

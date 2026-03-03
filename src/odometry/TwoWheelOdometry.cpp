@@ -75,12 +75,15 @@ units::Pose TwoWheelOdometry::update() {
     uint32_t now = pros::micros();
     Angle curVertPos  = m_verticalEncoder->getAngle();
     Angle curHorizPos = m_horizontalEncoder->getAngle();
-    Angle curHeading  = units::constrainAngle180(
-        m_imu->getRotation() + from_stDeg(m_imuOffset));
+    // Use raw (unconstrained) cumulative heading for delta computation.
+    // constrainAngle180 is only applied when storing m_pose.orientation.
+    // If we constrained before differencing, the ±180° wrap would cause
+    // a ~360° spike in deltaTheta (e.g. -179° − 179° = −358°).
+    Angle rawHeading = m_imu->getRotation() + from_stDeg(m_imuOffset);
 
     Angle vertDelta  = curVertPos  - m_prevVerticalPos;
     Angle horizDelta = curHorizPos - m_prevHorizontalPos;
-    Angle deltaTheta = curHeading  - m_prevHeading;
+    Angle deltaTheta = rawHeading  - m_prevHeading;
 
     // ---- RAII mutex guard ----
     struct Guard {
@@ -100,7 +103,7 @@ units::Pose TwoWheelOdometry::update() {
         units::abs(deltaTheta) < 0.001_stDeg) {
         m_prevVerticalPos   = curVertPos;
         m_prevHorizontalPos = curHorizPos;
-        m_prevHeading       = curHeading;
+        m_prevHeading       = rawHeading;
         return m_pose;
     }
 
@@ -157,7 +160,7 @@ units::Pose TwoWheelOdometry::update() {
     //   Δy_global = forward·sin(mid) + lateral·cos(mid)
     m_pose.x += localForward * cosH - localLateral * sinH;
     m_pose.y += localForward * sinH + localLateral * cosH;
-    m_pose.orientation = curHeading;
+    m_pose.orientation = units::constrainAngle180(rawHeading);
 
     // ---- velocity estimation ----
     uint32_t dtUs = now - m_lastUpdateTime;
@@ -177,7 +180,7 @@ units::Pose TwoWheelOdometry::update() {
     // ---- save for next iteration ----
     m_prevVerticalPos   = curVertPos;
     m_prevHorizontalPos = curHorizPos;
-    m_prevHeading       = curHeading;
+    m_prevHeading       = rawHeading;
 
     return out;
 }
@@ -200,7 +203,7 @@ void TwoWheelOdometry::resetPose(const units::Pose& pose) {
     m_prevHorizontalPos = m_horizontalEncoder->getAngle();
     m_imuOffset         = to_stDeg(units::constrainAngle180(
                               pose.orientation - m_imu->getRotation()));
-    m_prevHeading       = pose.orientation;
+    m_prevHeading       = m_imu->getRotation() + from_stDeg(m_imuOffset);
     m_prevPose          = pose;
     m_mutex.give();
 }

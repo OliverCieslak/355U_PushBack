@@ -67,7 +67,6 @@ antistall::AntistallMotor secondStageIntake(-10, 600_rpm, 2.0_amp, 10.0_rpm, 1.0
 antistall::AntistallMotor firstStageIntake(-7, 600_rpm, 1.0_amp, 1.0_rpm, .2, 100, 1, 1, 20, 50, 300);
 
 pros::adi::DigitalOut scraperPiston('H');
-pros::adi::AnalogIn potSelector('D');
 pros::adi::DigitalOut WingLeft('G');
 
 // Set up distance sensors for particle filter
@@ -142,10 +141,6 @@ LinearVelocity maxVelocity = 80_inps;
 // Max acceleration from motor torque and robot mass
 LinearAcceleration maxAccel = (driveTrainTorque / (wheelDiameter / 2.0) / robotMass);
 
-// S-curve jerk limit: higher = faster (nearly trapezoidal), lower = smoother.
-// 3000 in/s³ gives ~0.05s ramp phases — barely noticeable smoothing but no speed loss.
-LinearJerk maxJerk = 375_inps3;
-
 // Maximum centripetal acceleration calculation
 // 1. Calculate friction-limited centripetal acceleration (slip constraint)
 double frictionCoefficient = .60;								   // Typical rubber wheels on competition surface
@@ -168,8 +163,8 @@ odometry::TwoWheelOdometry odometrySystem(
 	imu,
 	trackingWheelDiameter,  // vertical wheel diameter
 	trackingWheelDiameter,  // horizontal wheel diameter
-	0.5_in,   // vertical wheel lateral offset (positive = right of center)
-	-4.075_in,   // horizontal wheel longitudinal offset (centered)
+	0.338_in,   // vertical wheel lateral offset (calibrated via spin-in-place)
+	-4.079_in,   // horizontal wheel longitudinal offset (calibrated via spin-in-place)
 	initialPose);
 localization::ParticleFilter particleFilter(
 	[]() { return odometrySystem.getPose(); },
@@ -178,14 +173,14 @@ localization::ParticleFilter particleFilter(
 control::PIDDriveController pidDriveController(
 	leftMotors,
 	rightMotors,
-	{trackWidth, wheelDiameter, linearKp, linearKi, linearKd, angularKp, angularKi, angularKd, kV, kS, .5_in, 1_stDeg, headingKp, headingKi, headingKd, kA, maxVelocity, maxAccel, maxJerk},
+	{trackWidth, wheelDiameter, linearKp, linearKi, linearKd, angularKp, angularKi, angularKd, kV, kS, .5_in, 1_stDeg, headingKp, headingKi, headingKd},
 	[]() { return odometrySystem.getPose(); },
 	[]() { return odometrySystem.getVelocity(); });
 
 control::PIDDriveController pidPfDriveController(
 	leftMotors,
 	rightMotors,
-	{trackWidth, wheelDiameter, linearKp, linearKi, linearKd, angularKp, angularKi, angularKd, kV, kS, .5_in, 1_stDeg, headingKp, headingKi, headingKd, kA, maxVelocity, maxAccel, maxJerk},
+	{trackWidth, wheelDiameter, linearKp, linearKi, linearKd, angularKp, angularKi, angularKd, kV, kS, .5_in, 1_stDeg, headingKp, headingKi, headingKd},
 	[]() { return particleFilter.getPose(); },
 	[]() { return particleFilter.getVelocity(); });
 rd::Selector selector({
@@ -206,17 +201,18 @@ rd::Selector selector({
 	{"Tune maxJerk", tuneMaxJerk, "", 30},
 	// {"PF DS Calib", calibrateParticleFilterDistanceSensorPoses, "", 55},
 	//{"PF Test", runParticleFilterTest, "", 55},
-	/*{"Tune kS", tuneKs, "", 55},
-	{"Tune kV", tuneKv, "", 55},
-	{"Tune kA", tuneKa, "", 55},
-	{"Tune Angular PID", tunePID_Angular, "", 30},
-	{"Tune Linear PID", tunePID_Linear, "", 30},
-	{"Tune Heading", tunePID_Heading, "", 30},*/
+	//{"Tune kS", tuneKs, "", 55},
+	//{"Tune kV", tuneKv, "", 55},
+	//{"Tune kA", tuneKa, "", 55},
+	//{"Tune Angular PID", tunePID_Angular, "", 30},
+	//{"Tune Linear PID", tunePID_Linear, "", 30},
+	//{"Tune Heading", tunePID_Heading, "", 30},
 	//{"Autotune PID", tuning::autonAutoTunePID, "", 120},
 	//{"Manual Turn", manualTurnTest, "", 55},
 	// {"Manual Linear", manualLinearTest, "", 55},
 	// {"Path Test", runPathTest, "", 55},
 	{"Movement Test", movementTest, "", 55},
+	{"mpStartToML", mpStartToMatchLoader, "", 55},
 	{"Start to Match Load", Start_MatchLoad, "", 55},
 	{"Match Load to Long Goal", MatchLoad_LongGoal, "", 55},
 	{"Match Load to Wing", MatchLoad_Wing, "", 55},
