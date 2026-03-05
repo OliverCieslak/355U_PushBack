@@ -79,6 +79,7 @@ struct PurePursuitConfig {
 };
 
 class PurePursuitController {
+    friend void ppTask(void* param);
 public:
     PurePursuitController(
         lemlib::MotorGroup& leftMotors,

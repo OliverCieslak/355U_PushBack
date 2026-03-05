@@ -193,20 +193,19 @@ motion::PurePursuitController purePursuitController(
 );
 rd::Selector selector({
 	// {"Red Skills", autonSkillsRedSideOnly, "", 120},
-	// {"Skills", autonSkills, "", 240},
-	{"Upper Side", autonLongAndUpperGoal, "", 120},
-	{"Rush Lower", autonRushLower, "", 90},
-	{"Rush Upper", autonRushUpper, "", 90},
-	//{"Lower Side", autonLongAndLowerGoal, "", 120},
+	// {"Upper Side", autonLongAndUpperGoal, "", 120},
+	// {"Rush Lower", autonRushLower, "", 90},
+	// {"Rush Upper", autonRushUpper, "", 90},
+	// {"Lower Side", autonLongAndLowerGoal, "", 120},
 	// {"PP Full Path", purePursuitTest, "", 240},
 	// {"PP Straight", purePursuitStraightTest, "", 120},
 	// {"PP S Curve", purePursuitSTest, "", 180},
 	// {"CG Only", autonCenterGoalOnly, "", 240},
 	// {"LZ LG CG", autonLoadingZoneLongGoalCenterGoal, "", 240},
 	// {"Gen Path Test", genPathTest, "", 55},
-	{"Odom Test", runOdomTest, "", 55},
+	// {"Odom Test", runOdomTest, "", 55},
 	// {"Spin Calibration", runSpinCalibration, "", 30},
-	{"Tune maxJerk", tuneMaxJerk, "", 30},
+	// {"Tune maxJerk", tuneMaxJerk, "", 30},
 	// {"PF DS Calib", calibrateParticleFilterDistanceSensorPoses, "", 55},
 	//{"PF Test", runParticleFilterTest, "", 55},
 	//{"Tune kS", tuneKs, "", 55},
@@ -221,6 +220,9 @@ rd::Selector selector({
 	// {"Path Test", runPathTest, "", 55},
 	// {"Movement Test", movementTest, "", 55},
 	{"mpStartToML", mpStartToMatchLoader, "", 55},
+	{"mpStartToML + UpperCenter", mpStartToML_UpperCenter, "", 55},
+	{"Skills", autonSkills, "", 240},
+	{"Skills Simple", autonSkillsOneSide, "", 240},
 	{"Start to Match Load", Start_MatchLoad, "", 55},
 	{"Match Load to Long Goal", MatchLoad_LongGoal, "", 55},
 	{"Match Load to Wing", MatchLoad_Wing, "", 55},
@@ -250,6 +252,9 @@ void initialize()
 
 	// Selector callback example, prints selected auton to the console
 	selector.sd_load();
+	selector.on_select([](std::optional<rd::Selector::routine_t> routine) {
+		selector.sd_save();
+	});
 	/*
 	selector.on_select([](std::optional<rd::Selector::routine_t> routine)
 										 {

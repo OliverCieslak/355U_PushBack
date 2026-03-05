@@ -283,7 +283,7 @@ bool PurePursuitController::update(Time dt) {
     return true;
 }
 
-static void ppTask(void* param) {
+void ppTask(void* param) {
     PurePursuitController* self = static_cast<PurePursuitController*>(param);
     while (self->isFollowing()) {
         self->update(10_msec);

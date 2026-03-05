@@ -5,146 +5,292 @@
 
 void autonSkills()
 {
-    units::Pose initialPose = units::Pose(48_in, 12_in, from_cDeg(0));
+    units::Pose initialPose = units::Pose(47_in, -12_in, from_cDeg(180));
     odometrySystem.resetPose(initialPose);
-    particleFilter.resetPose(initialPose);
     odometrySystem.start();
-    particleFilter.start();
-    leftMotors.setBrakeMode(lemlib::BrakeMode::BRAKE);
-    rightMotors.setBrakeMode(lemlib::BrakeMode::BRAKE);
+    uint32_t t0 = pros::millis();
 
-    // snailState = SnailState::Index; // Only the first stage on
-    firstStageIntake.setMaxRetries(10);
+    wingState = WingState::LEFTUP; 
 
-    pidDriveController.driveDistance(33_in, 6.0, 4_sec, true); // Drive to the match loader
-    pidDriveController.turnToHeading(90_cDeg, 8.0, 2_sec, true);
+    auto pose = odometrySystem.getPose();
+    printf("[%5lums] x=%.1f y=%.1f hC=%.1f\n",
+           (unsigned long)(pros::millis() - t0),
+           to_in(pose.x), to_in(pose.y), to_cDeg(pose.orientation));
 
     scraperPiston.set_value(true);
-    pidDriveController.driveDistance(24_in, 5.0, 4_sec, true); // Drive to the match loader
+    snailState = SnailState::Index; // Get ready to match load
+    pidDriveController.driveToPoint({47_in, -48_in}, 8.0, 1.75_sec);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] SE_ML approach x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
 
-    pros::delay(2000); // Wait to intake the balls
-
-    pidDriveController.driveDistance(-36_in, 4.0, 4_sec, true); // Drive to the goal
-
-    // snailState = SnailState::Long;
-    pros::delay(2000); // Wait to intake the balls
+    pidDriveController.turnToHeading(from_cDeg(90), 8.0, 1.5_sec, true);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] SE_ML turn East x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
+    pidDriveController.driveDistance(14_in, 6.0, 1_sec, true);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] SE_ML intake drive x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
+    pros::delay(200);
     snailState = SnailState::OFF;
+
+    pidDriveController.driveToPoint({48_in, -48_in}, 8.0, 1.75_sec, true);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] SE_ML back out x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
     scraperPiston.set_value(false);
-
-    pidDriveController.driveDistance(12_in, 10.0, 4_sec, true); // Backaway from the goal
-    pidDriveController.turnToHeading(180_cDeg, 8.0, 2_sec, true);
-    pidDriveController.driveToPoint({48_in, -52_in}, 9.0, 9_sec, false, true); // Drive to the match loader
-
+    pidDriveController.turnToHeading(from_cDeg(180), 8.0, 1.5_sec);
     {
-        auto odomPose = odometrySystem.getPose();
-        printf("curPose   x=%.2f y=%.2f hComp=%.1f\n",
-               to_in(odomPose.x), to_in(odomPose.y), to_cDeg(odomPose.orientation));
-        auto pfPose = particleFilter.getPose();
-        printf("PF Pose   x=%.2f y=%.2f hComp=%.1f\n",
-               to_in(pfPose.x), to_in(pfPose.y), to_cDeg(pfPose.orientation));
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] SE_ML turn South x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
     }
 
-    pidDriveController.turnToHeading(90_cDeg, 8.0, 2_sec, true);
-    scraperPiston.set_value(true);
-    // snailState = SnailState::Index; // Only the first stage on
-    pidDriveController.driveDistance(12_in, 5.0, 3_sec, true); // Drive to the match loader
-    pros::delay(2000);                                         // Wait to intake the balls
-
-    pidDriveController.turnToHeading(45_cDeg, 8.0, 2_sec, true);
-    pidDriveController.driveDistance(-12_in, 5.0, 1.5_sec, true); // Back away
-
-    pidDriveController.turnToHeading(270_cDeg, 8.0, 2_sec, true);
-    pidDriveController.driveDistance(90_in, 7.0, 10_sec, true); // Drive to blue side
-
+    pidDriveController.driveToPoint({48_in, -58_in}, 8.0, 1.0_sec);
     {
-        auto odomPose = odometrySystem.getPose();
-        printf("curPose   x=%.2f y=%.2f hComp=%.1f\n",
-               to_in(odomPose.x), to_in(odomPose.y), to_cDeg(odomPose.orientation));
-        auto pfPose = particleFilter.getPose();
-        printf("PF Pose   x=%.2f y=%.2f hComp=%.1f\n",
-               to_in(pfPose.x), to_in(pfPose.y), to_cDeg(pfPose.orientation));
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] SE corner clear x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
     }
-    snailState = SnailState::OFF;
-}
+    pidDriveController.turnToHeading(from_cDeg(270), 8.0, 1.5_sec);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] turn West for cross-field x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
 
-void autonSkillsRedSideOnly()
-{
-    // Start facing left since that's where the bottom 3 red balls are
-    units::Pose initialPose = units::Pose(48_in, -12_in, from_cDeg(180));
-    odometrySystem.resetPose(initialPose);
-    particleFilter.resetPose(initialPose);
-    odometrySystem.start();
-    particleFilter.start();
-    leftMotors.setBrakeMode(lemlib::BrakeMode::BRAKE);
-    rightMotors.setBrakeMode(lemlib::BrakeMode::BRAKE);
+    pidDriveController.driveToPoint({-32_in, -56_in}, 8.0, 5.0_sec);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] SW corner arrived x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
 
-    snailState = SnailState::Index; // Only the first stage on
-    firstStageIntake.setMaxRetries(10);
+    pidDriveController.turnToHeading(from_cDeg(0), 8.0, 1.5_sec);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] SW corner turn North x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
 
-        // snailState = SnailState::Index; // Only the first stage on
-    firstStageIntake.setMaxRetries(10);
+    // Drive directly to goal mouth in one move, then turn to face West into goal
+    pidDriveController.driveToPoint({-32_in, -48_in}, 8.0, 2.5_sec);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] SW_LG mouth x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
 
-    pidDriveController.driveDistance(33_in, 6.0, 4_sec, true); // Drive to the match loader
-    pidDriveController.turnToHeading(90_cDeg, 7.0, 2.5_sec, true);
-
-    scraperPiston.set_value(true);
-    pros::delay(100); // Give time for piston to extend
-    pidDriveController.driveDistance(16_in, 4.0, 2_sec, true); // Drive to the match loader
-
-    pros::delay(2000); // Wait to intake the balls
-
-    pidDriveController.driveDistance(-34_in, 3.0, 5_sec, true); // Drive to the goal
+    pidDriveController.turnToHeading(from_cDeg(90), 8.0, 1.5_sec);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] SW_LG turn East (back-in) x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
     snailState = SnailState::Long;
-    scraperPiston.set_value(false);
-    pros::delay(2000); // Wait to score the balls
+    scraperPiston.set_value(true);
+    pros::delay(1000);
+    pidDriveController.driveToPoint({-56_in, -48_in}, 8.0, 2.0_sec, true);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] SW_LG score load1 x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
     snailState = SnailState::Index;
-
-    pidDriveController.driveDistance(16_in, 4.0, 3_sec, true); // Drive to the match loader
-    pidDriveController.turnToHeading(0_cDeg, 7.0, 2.5_sec, true);
-
-    // Drive to right side red match loader
-    pidDriveController.driveDistance(96_in, 8.0, 6_sec, true); // Drive to the match loader
-    pidDriveController.turnToHeading(90_cDeg, 7.0, 2.5_sec, true);
-    scraperPiston.set_value(true);
-    pros::delay(100); // Give time for piston to extend
-
-    // Drive into match loader
-    pidDriveController.driveDistance(24_in, 3.5, 3_sec, true); // Drive to the match loader
-    pros::delay(2000); // Wait to load the balls
-
-    pidDriveController.driveDistance(-34_in, 3.0, 5_sec, true); // Drive to the goal
+    pros::delay(500);
+    pidDriveController.driveToPoint({-32_in, -48_in}, 8.0, 2.0_sec);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] SW_LG pull back for load2 x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
     snailState = SnailState::Long;
-    scraperPiston.set_value(false); // Retract scraper
-    pros::delay(2000); // Wait to score the balls
+    scraperPiston.set_value(false);
+    pros::delay(1000);
 
-    // Prep for parking
-    pidDriveController.driveDistance(26_in, 5.0, 3_sec, true); // Drive to the match loader
-    pidDriveController.turnToHeading(160_cDeg, 7.0, 2.5_sec, true); // turn to face parking zone
+    pidDriveController.driveToPoint({-48_in, -48_in}, 8.0, 2.0_sec);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] SW_LG score load2 done, exit goal x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
+    pidDriveController.turnToHeading(from_cDeg(0), 8.0, 1.5_sec);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] turn North for cross-field x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
+    pidDriveController.driveToPoint({-48_in, 48_in}, 8.0, 4.0_sec);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] NW corner arrived x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
+    pidDriveController.turnToHeading(from_cDeg(-90), 8.0, 1.5_sec);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] NW_ML turn East x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
 
-    pidDriveController.driveDistance(72_in, 12.0, 6_sec, true); // Drive to the match loader
-
-    pros::delay(2000); // Wait to score the balls
+    snailState = SnailState::Index;
+    scraperPiston.set_value(true);
+    pidDriveController.driveDistance(14_in, 6.0, 1_sec, true);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] NW_ML intake drive x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
+    pros::delay(200);
     snailState = SnailState::OFF;
+
+    pidDriveController.driveToPoint({-48_in, 48_in}, 8.0, 2.0_sec, true);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] NW_ML back out x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
+    scraperPiston.set_value(false);
+    pidDriveController.turnToHeading(from_cDeg(0), 8.0, 1.5_sec);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] NW_ML turn North x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
+
+    pidDriveController.driveToPoint({-48_in, 56_in}, 8.0, 2.0_sec, true);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] NW corner clear x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
+
+    pidDriveController.turnToHeading(from_cDeg(90), 8.0, 1.5_sec);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] turn East for cross-field x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
+
+    pidDriveController.driveToPoint({40_in, 56_in}, 8.0, 4.0_sec);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] NE corner arrived x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
+
+    pidDriveController.turnToHeading(from_cDeg(180), 8.0, 1.5_sec);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] NE_ML turn South x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
+
+    pidDriveController.driveToPoint({40_in, 48_in}, 8.0, 2.0_sec);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] NE_ML approach x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
+
+    pidDriveController.turnToHeading(from_cDeg(90), 8.0, 1.5_sec);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] NE_ML turn East x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
+    pidDriveController.driveToPoint({32_in, 48_in}, 8.0, 2.0_sec, true);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] NE_LG mouth x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
+    snailState = SnailState::Long;
+    scraperPiston.set_value(true);
+    pros::delay(1000);
+
+    pidDriveController.driveToPoint({56_in, 48_in}, 8.0, 2.0_sec);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] NE_LG score load1 x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
+    snailState = SnailState::Index;
+    pros::delay(500);
+
+    pidDriveController.driveToPoint({32_in, 48_in}, 8.0, 2.0_sec, true);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] NE_LG pull back for load2 x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
+    snailState = SnailState::Long;
+    scraperPiston.set_value(false);
+    pros::delay(1000);
+
+    pidDriveController.driveToPoint({52_in, 48_in}, 8.0, 2.0_sec, true);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] NE_LG score load2 done x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
+    pidDriveController.turnToHeading(from_cDeg(170), 8.0, 1.5_sec);
+    pidDriveController.driveDistance(14_in, 6.0, 1_sec, true);
+    pidDriveController.turnToHeading(from_cDeg(180), 8.0, 1.5_sec);
+    scraperPiston.set_value(true);
+    pidDriveController.driveToPoint({58_in, 0_in}, 8.0, 3.0_sec, true);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] SE_ML load3 done, END x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
+
 }
 
-void autonTwentyBallSkills()
+void autonSkillsOneSide()
 {
-    units::Pose initialPose = units::Pose(-12_in, 60_in, from_cDeg(0));
+    units::Pose initialPose = units::Pose(47_in, -12_in, from_cDeg(180));
     odometrySystem.resetPose(initialPose);
-    // particleFilter.resetPose(initialPose);
     odometrySystem.start();
-    // particleFilter.start();
-    leftMotors.setBrakeMode(lemlib::BrakeMode::BRAKE);
-    rightMotors.setBrakeMode(lemlib::BrakeMode::BRAKE);
+    uint32_t t0 = pros::millis();
 
-    snailState = SnailState::Index; // Only the first stage on
-    firstStageIntake.setMaxRetries(10);
+    wingState = WingState::LEFTUP; 
 
-    // Example sequence of movements (to be replaced with actual routine)
-    pidDriveController.driveDistance(6_in, 9.0, .5_sec, true); // Drive forward
+    auto pose = odometrySystem.getPose();
+    printf("[%5lums] x=%.1f y=%.1f hC=%.1f\n",
+           (unsigned long)(pros::millis() - t0),
+           to_in(pose.x), to_in(pose.y), to_cDeg(pose.orientation));
 
-    pros::delay(1000); // Simulate intake time
-    pidDriveController.driveDistance(18_in, 4.0, .5_sec, true); // Drive forward
-    pros::delay(1000); // Simulate intake time
-    snailState = SnailState::OFF; // Stop intake and scoring motors at the end
+    scraperPiston.set_value(true);
+    snailState = SnailState::Index; // Get ready to match load
+    pidDriveController.driveToPoint({47_in, -48_in}, 8.0, 1.75_sec);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] SE_ML approach x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
+
+    pidDriveController.turnToHeading(from_cDeg(90), 8.0, 1.5_sec, true);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] SE_ML turn East x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
+    pidDriveController.driveDistance(14_in, 6.0, 1_sec, true);
+    {
+        auto p = odometrySystem.getPose();
+        printf("[%5lums] SE_ML intake drive x=%.2f y=%.2f h=%.1f\n",
+               (unsigned long)(pros::millis() - t0), to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
+    }
+    pros::delay(200);
+    snailState = SnailState::OFF;
 }

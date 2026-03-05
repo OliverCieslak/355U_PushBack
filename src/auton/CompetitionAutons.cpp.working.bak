@@ -286,7 +286,7 @@ void movementTest()
 void Start_MatchLoad()
 {
     /*
-
+    
     Length x_start = 0_in;
     Length y_start = 0_in;
     double heading_start = 0;
@@ -305,19 +305,18 @@ void Start_MatchLoad()
 
     pidDriveController.turnToHeading(from_cDeg(-90), 12.0, 1.0_sec, true);
 
-    snailState = SnailState::Index;
+    snailState = SnailState::Index; 
 
     pros::delay(50);
 
     pidDriveController.driveToPoint(units::Pose(-16_in, 31_in, from_cDeg(0)), 12.0, 1.0_sec, false);
 
-    // pros::delay(100);
+    //pros::delay(100); 
 
-    // auton = working
+    //auton = working
 }
-
-void MatchLoad_LongGoal()
-{
+    
+void MatchLoad_LongGoal() {
 
     /*
 
@@ -331,16 +330,15 @@ void MatchLoad_LongGoal()
 
     */
 
-    // pidDriveController.driveToPoint(units::Pose(18_in, 33_in, from_cDeg(0)), 12.0, 1_sec, true);
+    //pidDriveController.driveToPoint(units::Pose(18_in, 33_in, from_cDeg(0)), 12.0, 1_sec, true); 
 
     pidDriveController.driveToPoint(units::Pose(24_in, 31_in, from_cDeg(0)), 12.0, 1.0_sec, true);
 
-    snailState = SnailState::Long;
+    snailState = SnailState::Long; 
 
-    // pros::delay(200);
+    //pros::delay(200); 
 }
-void LongGoal_ThreeBlocks()
-{
+void LongGoal_ThreeBlocks() {
 
     /*
 
@@ -354,14 +352,16 @@ void LongGoal_ThreeBlocks()
 
     */
 
-    pidDriveController.driveToPoint(units::Pose(20_in, 33_in, from_cDeg(0)), 10.0, 1_sec, false);
-    pidDriveController.turnAngle(from_cDeg(210), 12.0, 2_sec, true);
-    // snailState = SnailState::Long;
+    
 
-    // pros::delay(200);
+    
+    pidDriveController.driveToPoint(units::Pose(20_in, 33_in, from_cDeg(0)), 10.0, 1_sec, false); 
+    pidDriveController.turnAngle(from_cDeg(210), 12.0, 2_sec, true);
+    //snailState = SnailState::Long; 
+
+    //pros::delay(200); 
 }
-void MatchLoad_Wing()
-{
+void MatchLoad_Wing() {
 
     /*
 
@@ -389,10 +389,10 @@ void MatchLoad_Wing()
     );
 
     */
+    
+    pidDriveController.driveToPoint(units::Pose(0_in, 31_in, from_cDeg(0)), 12.0, 1_sec, false); 
 
-    pidDriveController.driveToPoint(units::Pose(0_in, 31_in, from_cDeg(0)), 12.0, 1_sec, false);
-
-    snailState = SnailState::OFF;
+    snailState = SnailState::OFF; 
 
     pidDriveController.turnAngle(from_cDeg(129), 12.0, 1_sec, true);
 
@@ -400,24 +400,23 @@ void MatchLoad_Wing()
 
     pidDriveController.driveToPoint(units::Pose(20_in, 19.5_in, from_cDeg(0)), 12.0, 1.0_sec, true);
 
-    wingState = WingState::LEFTUP;
+    wingState = WingState::LEFTUP; 
 
     pros::delay(20);
 
     pidDriveController.turnToHeading(from_cDeg(-90), 12.0, 1_sec, true);
 
-    // wingState = WingState::RIGHTUP;
+    //wingState = WingState::RIGHTUP;
 
     pidDriveController.driveToPoint(units::Pose(25_in, 23_in, from_cDeg(0)), 12.0, 1.0_sec, true);
 
     pidDriveController.driveToPoint(units::Pose(37_in, 25_in, from_cDeg(0)), 12.0, 1.0_sec, true);
 
-    pros::delay(40);
+    pros::delay(40); 
 }
 
-void BaconEggAndCheese()
-{
-
+void BaconEggAndCheese() {
+    
     Length x_start = 0_in;
     Length y_start = 0_in;
     double heading_start = 0;
@@ -439,9 +438,8 @@ void BaconEggAndCheese()
     MatchLoad_Wing();
 }
 
-void DoubleBaconAndEgg()
-{
-
+void DoubleBaconAndEgg() {
+    
     Length x_start = 0_in;
     Length y_start = 0_in;
     double heading_start = 0;
@@ -462,13 +460,12 @@ void DoubleBaconAndEgg()
     LongGoal_ThreeBlocks();
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// Module 1: Drive to match loader using pure pursuit trajectory
-// ══════════════════════════════════════════════════════════════════════════════
-void mpStart_DriveToMatchLoader(uint32_t t0)
-{
-    snailState = SnailState::Index;
-    scraperPiston.set_value(true);
+void mpStartToMatchLoader() {
+    units::Pose initialPose = units::Pose(0_in, 0_in, from_cDeg(0));
+    odometrySystem.resetPose(initialPose);
+    odometrySystem.start();
+
+    uint32_t t0 = pros::millis();
 
     // ── Curved path: start (0,0) heading 0°, curve to match loader at (-9,36) heading -90° ──
     motion::TrajectoryConfig trajCfg(maxVelocity, maxAccel, 80_inps2);
@@ -478,9 +475,10 @@ void mpStart_DriveToMatchLoader(uint32_t t0)
     //   Mid:    (0, 16)  heading -20°  → gentler initial curve
     //   End:    (-13, 25.5) heading -90°  → facing left at the match loader
     std::vector<units::Pose> waypoints = {
-        units::Pose(0_in, 0_in, from_cDeg(0)),
-        units::Pose(0_in, 15_in, from_cDeg(-20)),
-        units::Pose(-13_in, from_in(25.5), from_cDeg(-90))};
+        units::Pose( 0_in,  0_in, from_cDeg(0)),
+        units::Pose( 0_in, 15_in, from_cDeg(-20)),
+        units::Pose(-13_in, from_in(25.5), from_cDeg(-90))
+    };
 
     auto traj = motion::TrajectoryGenerator::generateTrajectory(waypoints, trajCfg);
     printf("Traj: %zu pts, dist=%.1f in, dur=%.2f s\n",
@@ -493,7 +491,7 @@ void mpStart_DriveToMatchLoader(uint32_t t0)
     ppCfg.lookahead = 8_in;
     ppCfg.waypointTolerance = 2_in;
     ppCfg.finalPivot = true;
-    ppCfg.finalPivotTolerance = from_stDeg(8); // wider: robot ends at ~-84° (5.6° from -90°), was timing out at 5°
+    ppCfg.finalPivotTolerance = from_stDeg(8);  // wider: robot ends at ~-84° (5.6° from -90°), was timing out at 5°
     ppCfg.dynamicLookahead = true;
     ppCfg.dynLookMin = 6_in;
     ppCfg.dynLookMax = 14_in;
@@ -504,8 +502,7 @@ void mpStart_DriveToMatchLoader(uint32_t t0)
 
     // ── Follow with telemetry ──
     purePursuitController.followPath(true); // async
-    while (purePursuitController.isFollowing())
-    {
+    while (purePursuitController.isFollowing()) {
         auto pose = odometrySystem.getPose();
         printf("[%5lums] x=%.1f y=%.1f hC=%.1f\n",
                (unsigned long)(pros::millis() - t0),
@@ -518,41 +515,28 @@ void mpStart_DriveToMatchLoader(uint32_t t0)
            (unsigned long)(pros::millis() - t0),
            to_in(endPose.x), to_in(endPose.y), to_cDeg(endPose.orientation));
     purePursuitController.stop();
-}
 
-// ══════════════════════════════════════════════════════════════════════════════
-// Module 2: Load blocks from match loader
-// ══════════════════════════════════════════════════════════════════════════════
-void mpStart_LoadFromMatchLoader(uint32_t t0)
-{
+
+    //////////////////////////////////////////////////////////////////////
+    // next movement: load from match loader
     pros::delay(500); // Load blocks from ML
-}
 
-// ══════════════════════════════════════════════════════════════════════════════
-// Module 3: Drive to long goal and score
-// ══════════════════════════════════════════════════════════════════════════════
-void mpStart_DriveToLongGoalAndScore(uint32_t t0)
-{
-    control::PIDDriveController::Point longGoalPt(from_in(15.5), 33_in);
-    pidDriveController.driveToPoint(longGoalPt, 9.0, 1.5_sec, true, true);
-
+    //////////////////////////////////////////////////////////////////////
+    // next movement: drive backwards to long goal (fixed target, reversed)
+    {
+        control::PIDDriveController::Point longGoalPt(from_in(15.5), 32_in);
+        pidDriveController.driveToPoint(longGoalPt, 9.0, 1.5_sec, true, true);
+    }
     {
         auto pose = odometrySystem.getPose();
         printf("[%5lums] afterReverse x=%.2f y=%.2f hComp=%.1f\n",
                (unsigned long)(pros::millis() - t0),
                to_in(pose.x), to_in(pose.y), to_cDeg(pose.orientation));
     }
-    snailState = SnailState::Long;  // Score LG
-    scraperPiston.set_value(false);
-    pros::delay(750);               // Score blocks
-    snailState = SnailState::OFF;
-}
 
-// ══════════════════════════════════════════════════════════════════════════════
-// Module 4: Wing sweep phase - clears goal and sweeps east
-// ══════════════════════════════════════════════════════════════════════════════
-void mpStart_WingSweep(uint32_t t0)
-{
+    pros::delay(750); // Score blocks
+
+    //////////////////////////////////////////////////////////////////////
     // Phase 1 (forward west): curve from LG position south to y≈19, ending PRECISELY facing west
     // Phase 2 (reversed east): straight east at y≈19 — wing at y+11≈30 sweeps through LG
     //
@@ -561,8 +545,8 @@ void mpStart_WingSweep(uint32_t t0)
     //   At x=17 (post): robot body north edge = 19+7 = 26 < 29 ✓, wing tip y = 19+11 = 30 ≈ LG ✓
     {
         auto scorePose = odometrySystem.getPose();
-        double ax = to_in(scorePose.x); // ≈17
-        double ay = to_in(scorePose.y); // ≈31
+        double ax = to_in(scorePose.x);   // ≈17
+        double ay = to_in(scorePose.y);   // ≈31
 
         // ── Phase 1: turn south, drive south to drop robot to y≈18.5 ──
         // Simple approach: explicit turn + drive is more reliable than an S-curve trajectory
@@ -572,9 +556,9 @@ void mpStart_WingSweep(uint32_t t0)
         //                       wing tip   = 18.5+11 = 29.5 ≈ LG opening ✓
         printf("Phase1: south drop from (%.1f,%.1f), target y≈18.5\n", ax, ay);
 
-        pidDriveController.driveDistance(8_in, 10.0, 0.75_sec, true);          // clear goal before turning
-        pidDriveController.turnToHeading(from_cDeg(180), 12.0, 0.5_sec, true); // face south
-        pidDriveController.driveDistance(15_in, 10.0, 0.75_sec, true);         // drop south to y≈18
+        pidDriveController.driveDistance(8_in,    10.0, 0.75_sec, true);           // clear goal before turning
+        pidDriveController.turnToHeading(from_cDeg(180), 12.0, 0.5_sec, true);   // face south
+        pidDriveController.driveDistance(16.5_in, 10.0, 0.75_sec, true);         // drop south to y≈18
 
         auto midPose = odometrySystem.getPose();
         printf("[%5lums] afterFwd x=%.2f y=%.2f hComp=%.1f\n",
@@ -591,7 +575,7 @@ void mpStart_WingSweep(uint32_t t0)
                (unsigned long)(pros::millis() - t0), bx, by,
                to_cDeg(afterTurnPose.orientation));
 
-        // ── Phase 2: drive east reversed — wing sweeps through LG opening ──
+        // ── Phase 2: drive east 24" reversed — robot faces west, drives backwards into LG sweep ──
         printf("Phase2 driveToPoint: (%.1f,%.1f) \u2192 (%.1f,%.1f)\n", bx, by, bx + 20.0, by);
         pidDriveController.driveToPoint({from_in(bx + 20.0), from_in(by)}, 12.0, 1.5_sec, true, true);
 
@@ -603,82 +587,4 @@ void mpStart_WingSweep(uint32_t t0)
 
     leftMotors.setBrakeMode(lemlib::BrakeMode::HOLD);
     rightMotors.setBrakeMode(lemlib::BrakeMode::HOLD);
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// Auton: Match Loader → Long Goal → Pick up 3 blocks → Upper Center Goal
-// ══════════════════════════════════════════════════════════════════════════════
-void mpStartToML_UpperCenter()
-{
-    units::Pose initialPose = units::Pose(0_in, 0_in, from_cDeg(0));
-    odometrySystem.resetPose(initialPose);
-    odometrySystem.start();
-
-    uint32_t t0 = pros::millis();
-
-    mpStart_DriveToMatchLoader(t0);
-    mpStart_LoadFromMatchLoader(t0);
-    mpStart_DriveToLongGoalAndScore(t0);
-
-    // Clear LG: drive west off goal, turn south, drive south to staging area
-    pidDriveController.driveDistance(10_in, 10.0, 0.75_sec, true);                 // clear goal driving west
-    pidDriveController.turnToHeading(from_cDeg(180), 8.0, 0.75_sec, true);         // face south
-    pidDriveController.driveDistance(18_in, 10.0, 1.25_sec, true);                 // drive south to staging
-    {
-        auto pose = odometrySystem.getPose();
-        printf("[%5lums] afterClearLG x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(pose.x), to_in(pose.y), to_cDeg(pose.orientation));
-    }
-
-    pidDriveController.turnToHeading(from_cDeg(135), 8.0, 0.75_sec, true);         // face 3-stack
-    {
-        auto pose = odometrySystem.getPose();
-        printf("[%5lums] face3stack x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(pose.x), to_in(pose.y), to_cDeg(pose.orientation));
-    }
-    snailState = SnailState::Index;
-    pidDriveController.driveDistance(24_in, 8.0, 1.75_sec, true);                  // drive through 3-stack
-    {
-        auto pose = odometrySystem.getPose();
-        printf("[%5lums] afterStack x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(pose.x), to_in(pose.y), to_cDeg(pose.orientation));
-    }
-    pidDriveController.turnToHeading(from_cDeg(-30), 8.0, 0.75_sec, true);         // face center goal entry
-    {
-        auto pose = odometrySystem.getPose();
-        printf("[%5lums] faceCG x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(pose.x), to_in(pose.y), to_cDeg(pose.orientation));
-    }
-    pidDriveController.driveDistance(-17_in, 8.0, 1.75_sec, true);                 // reverse into center goal
-    {
-        auto pose = odometrySystem.getPose();
-        printf("[%5lums] atCG x=%.2f y=%.2f hComp=%.1f\n",
-               (unsigned long)(pros::millis() - t0),
-               to_in(pose.x), to_in(pose.y), to_cDeg(pose.orientation));
-    }
-    snailState = SnailState::Middle;
-    pros::delay(1250);
-    snailState = SnailState::OFF;
-    
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// Main auton: Match Loader → Long Goal → Wing Sweep
-// ══════════════════════════════════════════════════════════════════════════════
-void mpStartToMatchLoader()
-{
-    units::Pose initialPose = units::Pose(0_in, 0_in, from_cDeg(0));
-    odometrySystem.resetPose(initialPose);
-    odometrySystem.start();
-
-    uint32_t t0 = pros::millis();
-
-    mpStart_DriveToMatchLoader(t0);
-    mpStart_LoadFromMatchLoader(t0);
-    mpStart_DriveToLongGoalAndScore(t0);
-    mpStart_WingSweep(t0);
 }
