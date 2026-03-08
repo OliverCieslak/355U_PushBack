@@ -66,8 +66,9 @@ void runOdomTest()
 
 void runSpinCalibration()
 {
-  printf("=== SPIN-IN-PLACE OFFSET CALIBRATION ===\n");
-  printf("Robot will turn 4x90 = 360 degrees.\n");
+  printf("=== SPIN-IN-PLACE OFFSET CALIBRATION (720 deg) ===\n");
+  printf("Robot will spin 720 degrees continuously (2 full turns CW).\n");
+  printf("More rotation = better signal-to-noise on offset measurement.\n");
   printf("DO NOT TOUCH THE ROBOT.\n");
   pros::delay(1000);
 
@@ -76,48 +77,73 @@ void runSpinCalibration()
   // setAngle resets them to 0; the first update() sees a huge phantom delta.
   horizontalTrackingWheel.setAngle(0_stDeg);
   verticalTrackingWheel.setAngle(0_stDeg);
+  pros::delay(20); // let encoder registers settle at 0
+
+  // Snapshot the raw IMU rotation BEFORE the spin so we measure a true
+  // delta, not cumulative-since-calibration.  If any prior auton ran, the
+  // IMU is not at 0 and reading it raw at the end would give a wrong result.
+  //
+  // imu.getRotation() returns an Angle stored in standard-radians internally.
+  // We extract the scalar in standard degrees for safe arithmetic on a delta
+  // (NOT to_cDeg / to_stRad which apply 90−x / π/2−x heading transforms
+  //  that are only valid for absolute headings, not for rotation deltas).
+  double imuStartStDeg = imu.getRotation().internal() * (180.0 / M_PI);
+
   odometrySystem.resetPose(units::Pose(0_in, 0_in, 0_cDeg));
   odometrySystem.start();
   pros::delay(100);
 
   Length wheelRadius = trackingWheelDiameter / 2.0;
 
-  for (int i = 1; i <= 4; i++) {
-      printf("  Turn %d/4...\n", i);
-      pidDriveController.turnAngle(90_stDeg, 8.0, 5_sec, true);
-      pros::delay(500);
+  const double TARGET_ROT_DEG = 720.0;
+  // 8 × 90° = 720° total. Each step stays within ±180° so constrainAngle180
+  // inside turnToHeading never wraps the error to ~0 and quits immediately.
+  // Robot fully settles between steps so encoder reads are clean.
+  printf("  %6s  %7s  %7s  %7s  %7s  %7s\n",
+         "rot°", "horiz", "vert", "odom_x", "odom_y", "head°");
 
-      double horizTravel = to_in(to_stRad(horizontalTrackingWheel.getAngle()) * wheelRadius);
-      double vertTravel = to_in(to_stRad(verticalTrackingWheel.getAngle()) * wheelRadius);
+  for (int i = 1; i <= 8; i++) {
+      pidDriveController.turnAngle(90_stDeg, 6.0, 5_sec, true);
+      pros::delay(300);
+
+      double rotSoFar = (imu.getRotation().internal() * (180.0 / M_PI)) - imuStartStDeg;
+      double h = to_in(to_stRad(horizontalTrackingWheel.getAngle()) * wheelRadius);
+      double v = to_in(to_stRad(verticalTrackingWheel.getAngle())   * wheelRadius);
       units::Pose p = odometrySystem.getPose();
-      printf("  After %d deg: horiz=%.2f vert=%.2f | heading=%.1f | x=%.1f y=%.1f\n",
-             i * 90, horizTravel, vertTravel, to_cDeg(p.orientation),
-             to_in(p.x), to_in(p.y));
+      printf("  %6.1f  %7.3f  %7.3f  %7.3f  %7.3f  %7.1f\n",
+             rotSoFar, h, v, to_in(p.x), to_in(p.y), to_cDeg(p.orientation));
   }
-
-  pros::delay(500);
+  pros::delay(300); // let robot fully settle before sampling
 
   double finalHorizTravel = to_in(to_stRad(horizontalTrackingWheel.getAngle()) * wheelRadius);
-  double finalVertTravel = to_in(to_stRad(verticalTrackingWheel.getAngle()) * wheelRadius);
-  // Get cumulative rotation as compass degrees (CW positive).
-  // Convert to standard radians by negating (compass CW+ → standard CCW+).
-  // NOTE: Do NOT use to_stRad() here — that applies the absolute angle
-  // transform (π/2 - value), which adds a bogus π/2 offset to what is
-  // actually a rotation DELTA, not an absolute heading.
-  double actualRotCDeg = to_cDeg(imu.getRotation());
-  double actualRotStDeg = -actualRotCDeg;              // standard degrees (CCW+)
-  double actualRotRad   = actualRotStDeg * M_PI / 180.0; // standard radians
+  double finalVertTravel  = to_in(to_stRad(verticalTrackingWheel.getAngle())  * wheelRadius);
+
+  // Compute the rotation delta in standard degrees (CCW positive).
+  // Using raw .internal() / (π/180) avoids the heading-transform pitfall.
+  double imuEndStDeg    = imu.getRotation().internal() * (180.0 / M_PI);
+  double actualRotStDeg = imuEndStDeg - imuStartStDeg;  // CCW positive
+  double actualRotRad   = actualRotStDeg * M_PI / 180.0;
 
   printf("\n=== CALIBRATION RESULTS ===\n");
-  printf("  IMU measured rotation: %.1f stDeg / %.1f cDeg (%.4f rad)\n", actualRotStDeg, actualRotCDeg, actualRotRad);
-  printf("  Horizontal wheel travel: %.3f in\n", finalHorizTravel);
-  printf("  Vertical wheel travel:   %.3f in\n", finalVertTravel);
+  printf("  Expected rotation:     720.0 stDeg  (%.4f rad)\n", 720.0 * M_PI / 180.0);
+  printf("  IMU measured rotation: %.2f stDeg  (%.4f rad)\n",
+         actualRotStDeg, actualRotRad);
+  printf("  IMU closure error:     %.2f stDeg  (ideal = 0)\n",
+         std::fabs(actualRotStDeg) - TARGET_ROT_DEG);
+  printf("  Horizontal wheel travel: %.4f in\n", finalHorizTravel);
+  printf("  Vertical wheel travel:   %.4f in\n", finalVertTravel);
+
   double horizOffset = finalHorizTravel / actualRotRad;
-  double vertOffset = finalVertTravel / actualRotRad;
-  printf("\n  >>> HORIZONTAL OFFSET = %.3f inches <<<\n", horizOffset);
-  printf("  >>> VERTICAL OFFSET   = %.3f inches <<<\n", vertOffset);
-  printf("\n  Plug these into TwoWheelOdometry constructor in main.cpp\n");
+  double vertOffset  = finalVertTravel  / actualRotRad;
+
+  printf("\n  >>> HORIZONTAL OFFSET = %.4f in <<<\n", horizOffset);
+  printf("  >>> VERTICAL OFFSET   = %.4f in <<<\n",   vertOffset);
+  printf("\n  In main.cpp TwoWheelOdometry constructor:\n");
+  printf("    3rd-to-last arg (vertOffset):  %.4f_in\n",  vertOffset);
+  printf("    2nd-to-last arg (horizOffset): %.4f_in\n",  horizOffset);
+
   units::Pose fp = odometrySystem.getPose();
-  printf("  Final pose: x=%.1f y=%.1f heading=%.1f cDeg (%.1f stDeg)\n",
-         to_in(fp.x), to_in(fp.y), to_cDeg(fp.orientation), to_stDeg(fp.orientation));
+  printf("\n  Odom final pose: x=%.2f y=%.2f heading=%.1f cDeg\n",
+         to_in(fp.x), to_in(fp.y), to_cDeg(fp.orientation));
+  printf("  (x/y should be near 0,0 — any drift indicates residual offset error)\n");
 }

@@ -164,8 +164,8 @@ odometry::TwoWheelOdometry odometrySystem(
 	imu,
 	trackingWheelDiameter,  // vertical wheel diameter
 	trackingWheelDiameter,  // horizontal wheel diameter
-	0.352_in,   // vertical wheel lateral offset (avg of 3 calibration runs)
-	-4.081_in,   // horizontal wheel longitudinal offset (avg of 3 calibration runs)
+	0.6080_in,   // vertical wheel lateral offset (avg of runs 1+6)
+	-3.9652_in,   // horizontal wheel longitudinal offset (avg of runs 1+6)
 	initialPose);
 localization::ParticleFilter particleFilter(
 	[]() { return odometrySystem.getPose(); },
@@ -220,14 +220,16 @@ rd::Selector selector({
 	// {"Path Test", runPathTest, "", 55},
 	// {"Movement Test", movementTest, "", 55},
 	{"mpStartToML", mpStartToMatchLoader, "", 55},
-	{"mpStartToML + UpperCenter", mpStartToML_UpperCenter, "", 55},
+	{"mpStartToML_UC", mpStartToML_UpperCenter, "", 55},
 	{"Skills", autonSkills, "", 240},
-	{"Skills Simple", autonSkillsOneSide, "", 240},
-	{"Start to Match Load", Start_MatchLoad, "", 55},
-	{"Match Load to Long Goal", MatchLoad_LongGoal, "", 55},
-	{"Match Load to Wing", MatchLoad_Wing, "", 55},
-	{"Bacon Egg and Cheese", BaconEggAndCheese, "", 55},
-	{"Double Bacon Egg and Cheese", DoubleBaconAndEgg, "", 120}
+	{"SkillsSimple", autonSkillsOneSide, "", 240},
+	{"Start_Match_Load", Start_MatchLoad, "", 55},
+	{"MatchLoad_LongGoal", MatchLoad_LongGoal, "", 55},
+	{"MatchLoadWing", MatchLoad_Wing, "", 55},
+	{"BaconEggAndCheese", BaconEggAndCheese, "", 55},
+	{"DoubleBaconEggAndCheese", DoubleBaconAndEgg, "", 120},
+	{"altTrackingWheelCalibration", altTrackingWheelCalibration, "", 30},
+	{"Spin Calibration", runSpinCalibration, "", 60}
 });
 
 
@@ -250,10 +252,10 @@ void initialize()
 	secondStageIntake.setBrakeMode(lemlib::BrakeMode::COAST);
 	firstStageIntake.setBrakeMode(lemlib::BrakeMode::COAST);
 
-	// Selector callback example, prints selected auton to the console
-	selector.sd_load();
 	selector.on_select([](std::optional<rd::Selector::routine_t> routine) {
-		selector.sd_save();
+		if (pros::usd::is_installed()) {
+			selector.sd_save();
+		}
 	});
 	/*
 	selector.on_select([](std::optional<rd::Selector::routine_t> routine)
@@ -292,6 +294,15 @@ void initialize()
 			pros::delay(20);
 		}
 		controller.rumble(".");
+	}
+
+	// Load last-selected auton after IMU calibration so the SD card
+	// filesystem is guaranteed to be ready.
+	if (pros::usd::is_installed()) {
+		selector.sd_load();
+		std::cout << "SD auton restored" << std::endl;
+	} else {
+		std::cout << "Warning: SD card not found - last auton selection could not be restored" << std::endl;
 	}
 
 	std::cout << "Initializing robot...Done!" << std::endl;
@@ -409,6 +420,9 @@ void autonomous()
 {
 	// Read the file /usd/rd_auton.txt and print the contents to the console
 	std::cout << "Autonomous mode started" << std::endl;
+	horizontalTrackingWheel.setAngle(0_stDeg);
+	verticalTrackingWheel.setAngle(0_stDeg);
+
 	// Capture start time for autonomous routine execution
 	uint32_t autonStartMs = pros::millis();
 	selector.run_auton();

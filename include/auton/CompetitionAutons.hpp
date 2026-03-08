@@ -1,5 +1,6 @@
 #include "auton/IntakeAndPistonState.hpp"
 #include "control/PIDDriveController.hpp"
+#include "hardware/Encoder/V5RotationSensor.hpp"
 #include "hardware/Motor/MotorGroup.hpp"
 #include "localization/ParticleFilter.hpp"
 #include "main.h"
@@ -47,6 +48,7 @@ extern pros::adi::AnalogIn potSelector;
 
 extern lemlib::MotorGroup leftMotors;
 extern lemlib::MotorGroup rightMotors;
+extern lemlib::V5RotationSensor verticalTrackingWheel;
 extern pros::Distance leftSensor;
 extern pros::Distance rightSensor;
 
@@ -75,3 +77,4 @@ void mpStart_DriveToLongGoalAndScore(uint32_t t0);
 void mpStart_WingSweep(uint32_t t0);
 void mpStartToMatchLoader();
 void mpStartToML_UpperCenter();
+void altTrackingWheelCalibration();
